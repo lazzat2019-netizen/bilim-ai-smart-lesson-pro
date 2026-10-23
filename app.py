@@ -1,6 +1,6 @@
 # BILIM AI SMART LESSON PRO — Render / GitHub · Interactive Lab
 # Gemini + суреттері кестенің ішінде Word ҚМЖ + PowerPoint + HTML сабақ + 6 Premium карточка
-import os, json, re, html, uuid, tempfile, subprocess, textwrap, base64, hashlib
+import os, json, re, html, uuid, tempfile, subprocess, textwrap, base64, hashlib, secrets, time
 from pathlib import Path
 from datetime import date
 from xml.sax.saxutils import escape as xe
@@ -18,6 +18,92 @@ MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite')
 client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=120000)) if API_KEY else None
 ROOT = Path(tempfile.gettempdir()) / 'bilim_ai_pro'
 ROOT.mkdir(parents=True, exist_ok=True)
+
+# Canva OAuth 2.0 Authorization Code + PKCE. No tokens are exposed to the browser.
+# Session is kept in memory (single Render instance); restart requires reconnecting.
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import httpx
+
+CANVA_BASE_URL = os.environ.get('CANVA_BASE_URL', 'https://bilim-ai-smart-lesson-pro.onrender.com').rstrip('/')
+CANVA_REDIRECT_URI = CANVA_BASE_URL + '/canva/callback'
+CANVA_CLIENT_ID = os.environ.get('CANVA_CLIENT_ID', '').strip()
+CANVA_CLIENT_SECRET = os.environ.get('CANVA_CLIENT_SECRET', '').strip()
+CANVA_SCOPES = 'design:meta:read design:content:read design:content:write asset:read asset:write'
+CANVA_SIGNING_KEY = os.environ.get('CANVA_SESSION_SECRET', '').strip() or CANVA_CLIENT_SECRET
+canva_sessions = {}  # temporary in-memory tokens; never write to logs or files
+canva_app = FastAPI()
+
+def canva_message(message, ok=False):
+    color = '#087443' if ok else '#9a3412'
+    return HTMLResponse(f'<html lang="kk"><meta charset="utf-8"><title>Canva</title><body style="font-family:Segoe UI,Arial;padding:48px;background:#f1f6ff"><main style="max-width:650px;margin:auto;background:white;border-radius:18px;padding:32px"><h2 style="color:{color}">{html.escape(message)}</h2><p><a href="/">BILIM AI сайтына қайту</a></p></main></body></html>')
+
+@canva_app.get('/canva/connect')
+async def canva_connect():
+    if not CANVA_CLIENT_ID or not CANVA_CLIENT_SECRET or not CANVA_SIGNING_KEY:
+        return canva_message('Canva кілттері Render Environment ішінде орнатылмаған.')
+    from urllib.parse import urlencode
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+    state = secrets.token_urlsafe(24)
+    signer = URLSafeTimedSerializer(CANVA_SIGNING_KEY, salt='bilim-canva-oauth-v1')
+    cookie = signer.dumps({'state':state,'verifier':verifier})
+    params = dict(response_type='code', client_id=CANVA_CLIENT_ID, redirect_uri=CANVA_REDIRECT_URI,
+                  scope=CANVA_SCOPES, state=state, code_challenge=challenge, code_challenge_method='S256')
+    response = RedirectResponse('https://www.canva.com/api/oauth/authorize?'+urlencode(params),status_code=302)
+    response.set_cookie('bilim_canva_pkce',cookie,httponly=True,secure=True,samesite='lax',max_age=600,path='/canva')
+    return response
+
+@canva_app.get('/canva/callback')
+async def canva_callback(request:Request):
+    if request.query_params.get('error'):
+        return canva_message('Canva рұқсат бермеді: '+request.query_params.get('error',''))
+    code = request.query_params.get('code','')
+    state = request.query_params.get('state','')
+    signed = request.cookies.get('bilim_canva_pkce','')
+    try:
+        data=URLSafeTimedSerializer(CANVA_SIGNING_KEY,salt='bilim-canva-oauth-v1').loads(signed,max_age=600)
+    except (BadSignature,SignatureExpired):
+        return canva_message('Авторизация мерзімі аяқталды. Canva-ға қайта қосылыңыз.')
+    if not code or not state or not secrets.compare_digest(state,data.get('state','')):
+        return canva_message('Canva авторизациясының қауіпсіздік тексеруі сәтсіз.')
+    try:
+        async with httpx.AsyncClient(timeout=25) as http:
+            result=await http.post('https://api.canva.com/rest/v1/oauth/token',
+                auth=(CANVA_CLIENT_ID,CANVA_CLIENT_SECRET),
+                data={'grant_type':'authorization_code','code':code,'redirect_uri':CANVA_REDIRECT_URI,
+                      'code_verifier':data['verifier']})
+            result.raise_for_status()
+            tokens=result.json()
+        if not tokens.get('access_token'):
+            raise ValueError('Canva access token қайтармады')
+        sid=secrets.token_urlsafe(32)
+        canva_sessions[sid]={'access_token':tokens['access_token'],
+            'refresh_token':tokens.get('refresh_token'),
+            'expires_at':time.time()+int(tokens.get('expires_in',3600))}
+        response=canva_message('Canva аккаунты сәтті қосылды! OAuth байланысы жұмыс істейді.',True)
+        response.set_cookie('bilim_canva_session',sid,httponly=True,secure=True,samesite='lax',max_age=3600,path='/canva')
+    except (httpx.HTTPError,ValueError):
+        response=canva_message('Canva токенін алу мүмкін болмады. Redirect URL мен рұқсаттарды тексеріңіз.')
+    response.delete_cookie('bilim_canva_pkce',path='/canva')
+    return response
+
+@canva_app.get('/canva/status')
+async def canva_status(request:Request):
+    sid=request.cookies.get('bilim_canva_session','')
+    session=canva_sessions.get(sid)
+    active=bool(session and session['expires_at']>time.time())
+    return canva_message('Canva қосылған.' if active else 'Canva қосылмаған немесе сеанс аяқталған.',active)
+
+@canva_app.get('/canva/disconnect')
+async def canva_disconnect(request:Request):
+    sid=request.cookies.get('bilim_canva_session','')
+    canva_sessions.pop(sid,None)
+    response=RedirectResponse('/',status_code=302)
+    response.delete_cookie('bilim_canva_session',path='/canva')
+    return response
+
 
 def E(x): return html.escape(str(x or ''),quote=True)
 def S(x):
@@ -653,8 +739,13 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
                 canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
-            gr.HTML('<div class="help-panel"><b>Canva Education:</b> ZIP файлын жүктеп, Canva-ға PPTX және PNG материалдарын импорттаңыз. Бұл API-сіз экспорт. OAuth / Autofill API әзірге қосылмаған.</div>')
+            gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
     btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
-demo.launch(server_name='0.0.0.0',server_port=int(os.environ.get('PORT','7860')),share=False,show_error=True)
+# Mount Gradio under the same FastAPI app so Canva /canva/callback works on Render.
+app = gr.mount_gradio_app(canva_app, demo, path='/')
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app,host='0.0.0.0',port=int(os.environ.get('PORT','7860')))
