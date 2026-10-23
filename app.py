@@ -495,6 +495,63 @@ def make_pptx(meta,d,design_style='auto',include_visuals=True):
     assert len(prs.slides)==16, f'Слайд саны: {len(prs.slides)}'
     out=uniq('.pptx');prs.save(out);return out
 
+
+# Canva Education: API-free export. No Canva credentials are collected.
+def canva_design_pack(meta, data, pptx_path, design_style='auto'):
+    import zipfile
+    from xml.sax.saxutils import escape as xml_escape
+    theme=choose_design(meta,design_style)
+    main='#'+theme['main']; dark='#'+theme['dark']; accent='#'+theme['accent']
+    def lines(text,limit=32,maxlines=5):
+        import textwrap
+        value=' '.join(str(text or '').split())
+        arr=textwrap.wrap(value,width=limit,break_long_words=False,break_on_hyphens=False)
+        if len(arr)>maxlines:arr=arr[:maxlines];arr[-1]=arr[-1][:max(1,limit-2)]+'…'
+        return arr
+    def svg_text(text,x,y,width=34,size=43,fill='#14284e',maxlines=5,step=None):
+        step=step or size*1.3
+        return ''.join(f'<text x="{x}" y="{y+i*step:.0f}" font-family="DejaVu Sans,Arial,sans-serif" font-size="{size}" font-weight="700" fill="{fill}">{xml_escape(t)}</text>' for i,t in enumerate(lines(text,width,maxlines)))
+    def save_svg_png(svg,name):
+        target=Path(ROOT)/('canva_'+uuid.uuid4().hex[:8]+'_'+name)
+        cairosvg.svg2png(bytestring=svg.encode('utf-8'),write_to=str(target))
+        return target
+    outputs=[]
+    labels=data.get('diagram',{}).get('labels',[])[:4]
+    labels=[str(x) for x in labels if str(x).strip()] or ['Түсіну','Талдау','Қолдану']
+    # Landscape infographic, 1600 x 900.
+    cells=[]
+    cell_w=(1460-20*(len(labels)-1))/len(labels)
+    for i,label in enumerate(labels):
+        x=70+i*(cell_w+20)
+        cells.append(f'<rect x="{x:.0f}" y="345" width="{cell_w:.0f}" height="310" rx="26" fill="white" stroke="#DCE7F4" stroke-width="3"/>')
+        cells.append(f'<circle cx="{x+60:.0f}" cy="410" r="33" fill="{main if i%2==0 else accent}"/>')
+        cells.append(svg_text(str(i+1),x+47,426,2,36,'#FFFFFF',1))
+        cells.append(svg_text(label,x+30,502,max(10,int(cell_w/22)),32,dark,4,47))
+    infographic=f'''<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#F2F7FF"/><rect width="1600" height="220" fill="{dark}"/><circle cx="1450" cy="70" r="170" fill="{main}" opacity=".45"/>{svg_text(meta['topic'],70,105,37,49,'#FFFFFF',2,64)}<text x="70" y="285" font-size="29" font-family="DejaVu Sans" fill="{main}">ТАҚЫРЫПТЫҚ ИНФОГРАФИКА</text>{''.join(cells)}{svg_text(data.get('diagram',{}).get('caption',''),75,755,70,25,dark,3,35)}</svg>'''
+    outputs.append(('infographic_16x9.png',save_svg_png(infographic,'infographic.png')))
+    poster=f'''<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1528"><rect width="1080" height="1528" fill="#F5F8FF"/><rect width="1080" height="480" fill="{dark}"/><circle cx="960" cy="80" r="210" fill="{accent}" opacity=".4"/><text x="74" y="100" font-family="DejaVu Sans" font-size="33" fill="#FFFFFF">BILIM AI • SMART LESSON</text>{svg_text(meta['topic'],74,205,24,55,'#FFFFFF',4,72)}<rect x="65" y="530" width="950" height="850" rx="36" fill="#FFFFFF" stroke="#D9E5F7" stroke-width="3"/><text x="112" y="605" font-size="35" font-family="DejaVu Sans" font-weight="700" fill="{main}">НЕГІЗГІ ҰҒЫМДАР</text>{''.join(f'<rect x="112" y="{665+i*147}" width="850" height="118" rx="20" fill="{theme["pale"]}"/>'+svg_text(label,146,731+i*147,29,33,dark,2,42) for i,label in enumerate(labels[:4]))}<text x="72" y="1470" font-size="25" font-family="DejaVu Sans" fill="{dark}">{xml_escape(str(meta['subject']))} • {xml_escape(str(meta['grade']))}-сынып</text></svg>'''
+    outputs.append(('poster_A4_portrait.png',save_svg_png(poster,'poster.png')))
+    for i,card in enumerate(data.get('cards',[])[:6],1):
+        card_labels=card.get('visual_labels',[])[:3]
+        visual=''.join(f'<rect x="76" y="{570+j*124}" width="568" height="96" rx="18" fill="{theme["pale"]}"/>'+svg_text(label,105,628+j*124,27,26,dark,2,33) for j,label in enumerate(card_labels))
+        card_svg=f'''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280"><rect width="720" height="1280" fill="{dark}"/><rect x="20" y="20" width="680" height="1240" rx="32" fill="#FFFFFF"/><rect x="20" y="20" width="680" height="210" rx="32" fill="{main}"/><text x="68" y="75" font-size="23" fill="#FFFFFF" font-family="DejaVu Sans">BILIM AI · ТАПСЫРМА {i}/6</text>{svg_text(card.get('title',''),68,135,25,34,'#FFFFFF',2,43)}<text x="70" y="280" font-size="25" fill="{main}" font-family="DejaVu Sans">{xml_escape(str(card.get('level','')))}</text>{svg_text(card.get('context',''),70,340,34,25,dark,5,37)}{visual}<rect x="68" y="1005" width="584" height="175" rx="20" fill="#EDF3FF"/><text x="92" y="1047" font-size="25" font-family="DejaVu Sans" fill="{main}">ТАПСЫРМА</text>{svg_text(card.get('question',''),92,1093,37,23,dark,3,31)}</svg>'''
+        outputs.append((f'card_{i:02d}_9x16.png',save_svg_png(card_svg,f'card_{i}.png')))
+    zip_path=uniq('.zip')
+    guide=('CANVA EDUCATION IMPORT PACK\n\n'
+           '1. Canva -> Create a design -> Import file / Uploads.\n'
+           '2. presentation.pptx: import as a presentation and edit text and shapes.\n'
+           '3. infographic_16x9.png: upload as a background/visual asset.\n'
+           '4. poster_A4_portrait.png: upload into an A4 design.\n'
+           '5. card_01..06_9x16.png: upload as six image assets.\n'
+           'PNG images are flat images, not individually editable Canva elements.\n'
+           'This is an API-free export; it does not create Canva designs automatically.\n'
+           'OAuth and Autofill API are NOT enabled in this version.\n')
+    with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED) as z:
+        z.write(pptx_path,'presentation.pptx')
+        for name,path in outputs:z.write(path,name)
+        z.writestr('CANVA_IMPORT_README.txt',guide)
+    return zip_path
+
 def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals):
     missing=[name for name,value in [('Мектеп',school),('Мұғалім',teacher),('Пән',subject),('Сынып',grade),('Тақырып',topic),('Оқу мақсаты',objective)] if not S(value).strip()]
     if missing: raise gr.Error('Міндетті өрістер: '+', '.join(missing))
@@ -502,8 +559,9 @@ def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,de
     try:
         d=generate(subject,grade,topic,objective,int(duration),values)
         word=make_docx(meta,d);lesson,cards=make_html(meta,d);pptx=make_pptx(meta,d,design_style,include_visuals)
+        canva_pack=canva_design_pack(meta,d,pptx,design_style)
         preview=f'''<div class="pro-preview"><h2>🎓 {E(topic)}</h2><p>🎯 <b>Сабақ мақсаты:</b> {E(d['lesson_goal'])}</p><p>💗 <b>Құндылықтар:</b> {E(d['values'])}</p><p>📊 <b>Тапсырмалар:</b> 6 суретті карточка (жеке, жұптық, функционалдық)</p><p>☷ <b>Тест:</b> 10 сұрақ, автоматты тексеру</p></div>'''
-        return preview,word,pptx,lesson,cards,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
+        return preview,word,pptx,lesson,cards,canva_pack,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
     except Exception as e:
         raise gr.Error('Генерация қатесі: '+str(e)[:450])
 
@@ -592,7 +650,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
             with gr.Row(elem_classes=['download-row','cards']):
                 gr.HTML('<div class="download-copy">🎨 <strong>6 Premium карточка (HTML)</strong><br><small>9:16 форматындағы суретті тапсырмалар</small></div>')
                 cards=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
+            with gr.Row(elem_classes=['download-row','web']):
+                gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
+                canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
+            gr.HTML('<div class="help-panel"><b>Canva Education:</b> ZIP файлын жүктеп, Canva-ға PPTX және PNG материалдарын импорттаңыз. Бұл API-сіз экспорт. OAuth / Autofill API әзірге қосылмаған.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
-    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,status],show_progress='full')
+    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
 demo.launch(server_name='0.0.0.0',server_port=int(os.environ.get('PORT','7860')),share=False,show_error=True)
