@@ -1,6 +1,6 @@
 # BILIM AI SMART LESSON PRO — Google Colab: бір ұяшық
 # Gemini + суреттері кестенің ішінде Word ҚМЖ + PowerPoint + HTML сабақ + 6 Premium карточка
-import os, json, re, html, uuid, tempfile, subprocess, textwrap, base64
+import os, json, re, html, uuid, tempfile, subprocess, textwrap, base64, hashlib
 from pathlib import Path
 from datetime import date
 from xml.sax.saxutils import escape as xe
@@ -12,7 +12,7 @@ from docx.shared import Cm, Pt, RGBColor
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 import cairosvg
 
-# Hugging Face Space: Settings > Variables and secrets > GEMINI_API_KEY
+# Render: Environment > GEMINI_API_KEY (never hardcode a key)
 API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite')
 client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=120000)) if API_KEY else None
@@ -45,8 +45,24 @@ def normalize(data):
             raise ValueError('Тест сұрағының құрылымы қате')
     return data
 
+# Әдістер сабақ тақырыбына қарай таңдалады; сабақтан сабаққа әртүрлі.
+BRAINSTORM = ["Миға шабуыл", "Суретті сөйлет", "Ойлан–Жұптас–Бөліс", "Болжау", "Қате пікірді тап", "Ассоциация", "Проблемалық жағдаят", "Құпия сұрақ"]
+CRITICAL = ["Алты ойлау қалпағы", "Фишбоун", "Венн диаграммасы", "INSERT", "Джигсо", "Кейс-стади", "ПОПС формуласы", "SWOT талдау"]
+ASSESS = ["Смарт сағат", "Бағдаршам", "Екі жұлдыз, бір тілек", "Жетістік баспалдағы", "Бас бармақ", "Өзін-өзі бағалау парағы", "Үш шапалақ", "Білім монеталары"]
+REFLECT = ["3–2–1 Exit Ticket", "Бес саусақ", "Білім чемоданы", "SMS хабарлама", "Табыс ағашы", "Бүгін мен білдім", "Рефлексия нысанасы", "Болжам – Жаңа ақпарат"]
+GAME_SITES = ["Quizlet — https://quizlet.com", "Kahoot — https://kahoot.com", "Wordwall — https://wordwall.net", "LearningApps — https://learningapps.org", "Wayground — https://wayground.com"]
+
+def select_methods(subject, grade, topic, objective):
+    key = f"{subject}|{grade}|{topic}|{objective}".encode('utf-8')
+    h = hashlib.sha256(key).digest()
+    return dict(brainstorm=BRAINSTORM[h[0]%len(BRAINSTORM)],
+                critical=CRITICAL[h[1]%len(CRITICAL)],
+                assessment=ASSESS[h[2]%len(ASSESS)],
+                reflection=REFLECT[h[3]%len(REFLECT)],
+                game=GAME_SITES[h[4]%len(GAME_SITES)])
+
 def generate(subject,grade,topic,objective,duration,values):
-    if client is None: raise RuntimeError("GEMINI_API_KEY құпия кілті Hugging Face Space Settings > Secrets бөлімінде орнатылмаған")
+    if client is None: raise RuntimeError("GEMINI_API_KEY құпия кілті Render Environment Variables бөлімінде орнатылмаған")
     schema={
       'type':'OBJECT','properties':{
         'lesson_goal':{'type':'STRING'},'values':{'type':'STRING'},'ai_usage':{'type':'STRING'},
@@ -64,6 +80,7 @@ def generate(subject,grade,topic,objective,duration,values):
         'quiz':{'type':'ARRAY','items':{'type':'OBJECT','properties':{'q':{'type':'STRING'},'options':{'type':'ARRAY','items':{'type':'STRING'}},'answer':{'type':'INTEGER'},'explanation':{'type':'STRING'}},'required':['q','options','answer','explanation']}},
         'reflection':{'type':'STRING'},'homework':{'type':'STRING'}
       },'required':['lesson_goal','values','ai_usage','intro','middle','end','explanation','concepts','steps','diagram','cards','quiz','reflection','homework']}
+    selected=select_methods(subject,grade,topic,objective)
     prompt=f'''Қазақстандық тәжірибелі педагог-әдіскер ретінде бір тақырыпқа 4 өзара үйлесімді материал әзірле.
 Пән: {subject}; Сынып: {grade}; Тақырып: {topic}; Оқу мақсаты (кодын өзгертпе): {objective}; Ұзақтығы: {duration} минут; Құндылық: {values}.
 ТЕК осы тақырып бойынша жұмыс істе. БАСҚА ТАҚЫРЫПТЫҢ суретін, түсіндірмесін, есептерін қоспа.
@@ -71,13 +88,28 @@ def generate(subject,grade,topic,objective,duration,values):
 Сабақ кезеңдері: басы, ортасы, соңы; нақты бағалау критерийлері мен дескрипторлар көрсетілсін.
 ДӘЛ 6 суретті карточка: 1-2 жеңіл, 3-4 орташа, 5-6 күрделі. Түрлері: бос орын, сәйкестендіру, суретті талдау, есеп, функционалдық сауаттылық, шығармашылық. Әр карточкадағы visual_labels сол карточканың тақырыбына нақты сәйкес келсін.
 ДӘЛ 10 тест, әрқайсысында 4 жауап және 0-3 дұрыс индекс. Сызбаға 3-4 қысқа нақты термин бер.
+ОСЫ САБАҚҚА ӘДІСТЕР:
+Қызығушылықты ояту: {selected['brainstorm']} — 2 нақты тақырыптық сұрақ және өткізу жолы.
+Сыни ойлау: {selected['critical']} — тақырыпқа сай нақты талдау тапсырмасы және күтілетін жауап.
+Қалыптастырушы бағалау: {selected['assessment']} — нақты 3 дескриптор мен балл қою ережесі.
+Рефлексия: {selected['reflection']} — 3 нақты сөйлем/сұрақ және өткізу жолы.
+Ойын ресурсы: {selected['game']} — тек басты сайт URL-ін көрсет, нақты ойынның жасалмаған сілтемесін ОЙДАН ШЫҒАРМА.
+Осы әдістерді intro/middle/end teacher, student, assessment, resources өрістеріне нақты орналастыр.
+Жаңа сабақта оқушының сыни ойлауын және функционалдық сауаттылығын дамыт.
 Нейрондық желі IP желісі емес. Әр пәнге өзіне сәйкес диаграмма жаса. Қазақ тілінде жауап бер.''' 
     last=None
     for attempt in range(2):
         try:
             resp=client.models.generate_content(model=MODEL,contents=prompt,
               config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=schema,temperature=0.25,max_output_tokens=11000))
-            return normalize(json.loads(resp.text))
+            result=normalize(json.loads(resp.text))
+            result['methods']=selected
+            for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),('middle','Сыни ойлау','critical'),('end','Рефлексия','reflection')]:
+                if selected[key].lower() not in result[phase]['teacher'].lower():
+                    result[phase]['teacher'] += '\n' + label + ': ' + selected[key]
+            result['middle']['resources'] += '\nОйын платформасы: ' + selected['game']
+            result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
+            return result
         except Exception as e:
             last=e
     raise RuntimeError(f'Gemini жауап құрылымын жасау мүмкін болмады: {str(last)[:260]}')
@@ -189,7 +221,7 @@ def make_docx(meta,d):
         write(row[3],block.get('assessment',''))
         write(row[4],block.get('resources',''))
         if key=='intro':
-            add(row[1],'Қызығушылықты ояту',d.get('reflection','')[:160])
+            add(row[1],'Қызығушылықты ояту',d.get('intro',{}).get('teacher',''))
         if key=='middle':
             add(row[1],'Жаңа тақырыпты меңгеру',d.get('explanation',''))
             diag=d.get('diagram',{})
@@ -202,7 +234,7 @@ def make_docx(meta,d):
                 add(row[1],'Оқушы жауабы: __________________________',bold=False)
                 add(row[2],f'{i}-тапсырма',card.get('kind','')+' бойынша тапсырманы орындайды.')
                 add(row[3],f'{i}-тапсырма дескрипторы',
-                    'Тапсырманы дұрыс орындайды; шешімін негіздейді; қорытынды жасайды.')
+                    '1) Негізгі ұғымды дұрыс қолданады (1 балл); 2) шешімін дәлелдейді (1 балл); 3) қорытынды жасайды (1 балл).')
                 add(row[4],f'{i}-карточка','Суретті жұмыс парағы')
         if key=='end':
             add(row[1],'Рефлексия',d.get('reflection',''))
@@ -239,7 +271,7 @@ def make_html(meta,d):
     return lesson_file,cards_file
 
 def make_pptx(meta,d):
-    """14 editable slides using python-pptx; no Node/npm needed."""
+    """16 editable slides, premium educational style."""
     from pptx import Presentation
     from pptx.util import Inches, Pt as PPTPt
     from pptx.dml.color import RGBColor as PPTColor
@@ -295,7 +327,13 @@ def make_pptx(meta,d):
         panel(sl,c['context'],.8,1.55,11.7,1.3,size=17)
         panel(sl,c['question'],.8,3.1,11.7,2.5,'FFFFFF',19)
         tx(sl,c['level']+' · '+c['kind'],.9,6.0,11,.4,15,'7847D6',True)
-    sl=slide('Қорытынды және рефлексия',14)
+    sl=slide('Ойын және цифрлық ресурстар',14)
+    panel(sl,d.get('methods',{}).get('game','Quizlet / Kahoot / Wordwall'),.8,1.6,11.7,1.5,'EAF2FF',20)
+    panel(sl,'Тапсырмаларға арналған сұрақтар мен жауаптар дайын. Нақты ойын платформасында мұғалім өзі жариялайды.',.8,3.5,11.7,1.6,'F3EAFF',17)
+    sl=slide('Сыни ойлау және бағалау',15)
+    panel(sl,d.get('methods',{}).get('critical','Сыни ойлау'),.8,1.6,11.7,1.3,'EAF2FF',22)
+    panel(sl,d.get('middle',{}).get('assessment',''),.8,3.3,11.7,2.5,'FFFFFF',17)
+    sl=slide('Қорытынды және рефлексия',16)
     panel(sl,d['reflection'],.8,1.6,11.7,2.0,size=20)
     panel(sl,'Үй тапсырмасы: '+d['homework'],.8,4.1,11.7,1.8,'F2EAFE')
     out=uniq('.pptx');prs.save(out);return out
@@ -385,7 +423,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
                 gr.HTML('<div class="download-copy">📘 <strong>Word ҚМЖ (.docx)</strong><br><small>Суреттермен безендірілген қысқа мерзімді жоспар</small></div>')
                 word=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','ppt']):
-                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>14 слайд, түсіндірмелер және тапсырмалар</small></div>')
+                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>16 слайд, инфографика және тапсырмалар</small></div>')
                 ppt=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🌐 <strong>Интерактивті HTML сабағы</strong><br><small>Түсіндірме, тапсырмалар және 10 сұрақтық тест</small></div>')
