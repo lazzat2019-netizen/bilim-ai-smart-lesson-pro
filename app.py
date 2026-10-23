@@ -270,81 +270,185 @@ def make_html(meta,d):
     lesson_file=uniq('.html');Path(lesson_file).write_text(page,encoding='utf-8')
     return lesson_file,cards_file
 
-def make_pptx(meta,d):
-    """16 editable slides, premium educational style."""
+# AI SMART DESIGN: тақырыпқа сәйкес стиль, инфографика және әртүрлі композиция.
+# Бұл Canva/Gamma API емес: презентация өңделетін PowerPoint ретінде жергілікті құрылады.
+DESIGN_THEMES = {
+    'ai': {'name':'AI / Футуристік', 'dark':'101C40','main':'635BDF','accent':'11C5C6','pale':'E9E9FF','soft':'E8FBFA'},
+    'coding': {'name':'Программалау / Ойын', 'dark':'26345A','main':'F07827','accent':'8B5CF6','pale':'FFF1DF','soft':'F0E9FF'},
+    'network': {'name':'Желі / Технология', 'dark':'102F49','main':'0A88AE','accent':'20B99B','pale':'E3F7FD','soft':'E2FAF1'},
+    'science': {'name':'Жаратылыстану / Табиғат', 'dark':'184538','main':'279E72','accent':'E6AC3C','pale':'E8F7EB','soft':'FFF4D8'},
+    'math': {'name':'Математика / Дәлдік', 'dark':'182C55','main':'3463D5','accent':'ECA94B','pale':'E8EFFF','soft':'FFF4DF'},
+    'creative': {'name':'Шығармашылық / Әдебиет', 'dark':'51294D','main':'B6538C','accent':'E6A95E','pale':'FBEAF4','soft':'FFF4E7'},
+    'general': {'name':'Заманауи / Білім', 'dark':'1B315A','main':'3868DB','accent':'8E4DDA','pale':'E9F1FF','soft':'F1E9FF'}
+}
+
+def choose_design(meta, selected='auto'):
+    if selected in DESIGN_THEMES and selected != 'auto':
+        return DESIGN_THEMES[selected]
+    topic = (str(meta.get('topic',''))+' '+str(meta.get('subject',''))).lower()
+    # Neural network before generic network: prevent IP graphics for neural topics.
+    if any(x in topic for x in ('нейрон','жасанды интеллект','machine learning','машиналық оқыту','перцептрон','генератив','deep learning')):
+        key='ai'
+    elif any(x in topic for x in ('scratch','python','код жазу','алгоритм','программалау','kodu','for циклі','while циклі','функция құру','тармақталу')):
+        key='coding'
+    elif any(x in topic for x in ('ip-мекен','dns','домен','компьютерлік желі','желілік','tcp','хаттама','интернет','желінің')):
+        key='network'
+    elif any(x in topic for x in ('өсімдік','биология','химия','экология','жаратылыстану','география','табиғат','физика')):
+        key='science'
+    elif any(x in topic for x in ('математика','алгебра','геометрия','санау жүйесі','ақпаратты өлшеу','формула','теңдеу')):
+        key='math'
+    elif any(x in topic for x in ('әдебиет','тарих','өнер','тіл','шығарма','музыка')):
+        key='creative'
+    else:
+        key='general'
+    return DESIGN_THEMES[key]
+
+def make_pptx(meta,d,design_style='auto',include_visuals=True):
+    """16 editable slides, with topic-aware theme and varied vector-based layouts."""
     from pptx import Presentation
     from pptx.util import Inches, Pt as PPTPt
     from pptx.dml.color import RGBColor as PPTColor
-    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
+    from pptx.enum.text import MSO_ANCHOR
+    from pptx.enum.dml import MSO_THEME_COLOR
+    import textwrap
     prs=Presentation()
     prs.slide_width=Inches(13.333)
     prs.slide_height=Inches(7.5)
-    def rect(sl,x,y,w,h,color):
-        from pptx.enum.shapes import MSO_SHAPE
-        sh=sl.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,Inches(x),Inches(y),Inches(w),Inches(h))
-        sh.fill.solid();sh.fill.fore_color.rgb=PPTColor.from_string(color)
+    t=choose_design(meta,design_style)
+    def col(h):return PPTColor.from_string(h)
+    def shape(sl,x,y,w,h,fill,kind=MSO_SHAPE.ROUNDED_RECTANGLE,radius=None):
+        sh=sl.shapes.add_shape(kind, Inches(x), Inches(y), Inches(w), Inches(h))
+        sh.fill.solid();sh.fill.fore_color.rgb=col(fill)
         sh.line.fill.background()
         return sh
-    def tx(sl,content,x,y,w,h,size=19,color='173B86',bold=False):
-        sh=sl.shapes.add_textbox(Inches(x),Inches(y),Inches(w),Inches(h))
-        tf=sh.text_frame;tf.word_wrap=True
-        tf.margin_left=Inches(.08);tf.margin_right=Inches(.08)
-        for i,line in enumerate(str(content or '').split('\n')):
-            para=tf.paragraphs[0] if i==0 else tf.add_paragraph()
-            para.text=line;para.font.name='Arial';para.font.size=PPTPt(size)
-            para.font.bold=bold;para.font.color.rgb=PPTColor.from_string(color)
+    def txt(sl,content,x,y,w,h,size=20,color=None,bold=False,align=None):
+        sh=sl.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        tf=sh.text_frame;tf.clear();tf.word_wrap=True
+        tf.margin_left=Inches(.06);tf.margin_right=Inches(.06)
+        tf.margin_top=Inches(.02);tf.margin_bottom=Inches(.02)
+        tf.vertical_anchor=MSO_ANCHOR.MIDDLE
+        p=tf.paragraphs[0]
+        p.text=str(content or '')
+        p.font.name='Arial';p.font.size=PPTPt(size)
+        p.font.bold=bold;p.font.color.rgb=col(color or t['dark'])
+        if align is not None:p.alignment=align
         return sh
-    def slide(title,idx):
+    def shorten(v,limit=260):
+        value=str(v or '').strip()
+        return value if len(value)<=limit else value[:limit].rsplit(' ',1)[0]+'…'
+    def base(title,num,variant=0):
         sl=prs.slides.add_slide(prs.slide_layouts[6])
-        sl.background.fill.solid();sl.background.fill.fore_color.rgb=PPTColor(245,248,255)
-        rect(sl,0,0,13.333,.15,'2563EB')
-        tx(sl,title,.65,.42,12,.8,28,'173B86',True)
-        tx(sl,f'BILIM AI · SMART LESSON PRO                                   {idx:02d}',.7,7.1,11.8,.24,9,'627698')
+        sl.background.fill.solid();sl.background.fill.fore_color.rgb=col('F8FAFF')
+        shape(sl,0,0,.17,7.5,t['main'],MSO_SHAPE.RECTANGLE)
+        shape(sl,.55,.38,.12,.65,t['accent'],MSO_SHAPE.RECTANGLE)
+        txt(sl,shorten(title,90),.82,.38,11.8,.74,27,t['dark'],True)
+        shape(sl,.8,7.05,11.7,.015,'E0E8F2',MSO_SHAPE.RECTANGLE)
+        txt(sl,'BILIM AI  •  SMART DESIGN  /  '+t['name'],.85,7.11,10,.23,9,'7084A0')
+        txt(sl,f'{num:02d} / 16',11.6,7.1,.85,.23,9,t['main'],True)
+        if variant==1:
+            shape(sl,12.65,.15,.45,.45,t['pale'],MSO_SHAPE.OVAL)
         return sl
-    def panel(sl,content,x,y,w,h,color='EAF2FF',size=18):
-        rect(sl,x,y,w,h,color)
-        tx(sl,content,x+.16,y+.12,w-.32,h-.24,size,'243C68')
+    def panel(sl,content,x,y,w,h,bg=None,size=18,title=None):
+        shape(sl,x,y,w,h,bg or t['pale'])
+        if title:
+            txt(sl,title,x+.18,y+.14,w-.36,.42,15,t['main'],True)
+            txt(sl,shorten(content,max(110,int(w*h*25))),x+.18,y+.67,w-.36,h-.82,size,t['dark'])
+        else:
+            txt(sl,shorten(content,max(90,int(w*h*26))),x+.18,y+.15,w-.36,h-.3,size,t['dark'])
+    def infographic(sl,labels,y=2.2):
+        labels=[str(x) for x in labels if str(x).strip()][:4]
+        if not labels:labels=['Тақырып','Талдау','Қорытынды']
+        count=len(labels); gap=.24; w=(11.7-gap*(count-1))/count
+        for i,lab in enumerate(labels):
+            x=.82+i*(w+gap)
+            shape(sl,x,y,w,2.05,[t['pale'],t['soft'],'F0F4FC','FCEFE9'][i%4])
+            shape(sl,x+.16,y+.16,.53,.53,[t['main'],t['accent'],t['main'],t['accent']][i%4],MSO_SHAPE.OVAL)
+            txt(sl,str(i+1),x+.16,y+.16,.53,.53,17,'FFFFFF',True)
+            txt(sl,shorten(lab,62),x+.16,y+.85,w-.32,.92,18,t['dark'],True)
+            if i<count-1:
+                txt(sl,'→',x+w-.02,y+.74,.25,.45,19,t['main'],True)
+    def callout(sl,text,y=5.35):
+        shape(sl,.82,y,11.65,.9,'FFFFFF')
+        shape(sl,.82,y,.075,.9,t['accent'],MSO_SHAPE.RECTANGLE)
+        txt(sl,shorten(text,150),1.06,y+.1,11.1,.7,16,t['dark'])
+    # 01 Cover: dark editorial style
     sl=prs.slides.add_slide(prs.slide_layouts[6]);sl.background.fill.solid()
-    sl.background.fill.fore_color.rgb=PPTColor(23,59,134)
-    tx(sl,'BILIM AI — SMART LESSON PRO',.8,.85,11,.7,28,'FFFFFF',True)
-    tx(sl,meta['topic'],.8,2.0,11.7,2.3,37,'FFFFFF',True)
-    tx(sl,f"{meta['subject']} · {meta['grade']}-сынып",.8,5.35,11,.5,22,'DBEAFE')
-    sl=slide('Сабақ мақсаты',2);panel(sl,d['lesson_goal'],.8,1.6,11.7,2.0,size=23);panel(sl,meta['objective'],.8,4.0,11.7,1.4,'F2EAFE')
-    sl=slide('Қызығушылықты ояту',3);panel(sl,d['intro']['teacher'],.8,1.6,11.7,2.7);panel(sl,d['intro']['student'],.8,4.6,11.7,1.5)
-    sl=slide('Тақырыптық түсіндірме',4);panel(sl,d['explanation'],.8,1.6,11.7,4.9,'FFFFFF',17)
-    sl=slide('Тақырыптық сызба',5)
-    labels=d.get('diagram',{}).get('labels',[])[:4]
-    if labels:
-        width=11.5/len(labels)
-        for i,label in enumerate(labels):panel(sl,label,.8+i*width,2.35,width-.15,2.0,['FCE7F3','DBEAFE','DCFCE7','FEF3C7'][i%4],16)
-    tx(sl,d.get('diagram',{}).get('caption',''),.9,5.2,11,.8,17)
-    sl=slide('Негізгі ұғымдар',6)
-    for i,c in enumerate(d['concepts'][:4]):panel(sl,c['term']+' — '+c['meaning'],.8+(i%2)*6,1.55+(i//2)*2.35,5.7,2.05,['EAF3FF','F1EBFF'][i%2],15)
-    sl=slide('Қадамдық мысалдар',7)
-    for i,item in enumerate(d['steps'][:5]):panel(sl,f'{i+1}. {item}',.8,1.48+i*1.03,11.7,.91,'EBF2FF' if i%2==0 else 'FFFFFF',15)
-    for i,c in enumerate(d['cards'][:6]):
-        sl=slide(f"Тапсырма {i+1}: {c['title']}",8+i)
-        panel(sl,c['context'],.8,1.55,11.7,1.3,size=17)
-        panel(sl,c['question'],.8,3.1,11.7,2.5,'FFFFFF',19)
-        tx(sl,c['level']+' · '+c['kind'],.9,6.0,11,.4,15,'7847D6',True)
-    sl=slide('Ойын және цифрлық ресурстар',14)
-    panel(sl,d.get('methods',{}).get('game','Quizlet / Kahoot / Wordwall'),.8,1.6,11.7,1.5,'EAF2FF',20)
-    panel(sl,'Тапсырмаларға арналған сұрақтар мен жауаптар дайын. Нақты ойын платформасында мұғалім өзі жариялайды.',.8,3.5,11.7,1.6,'F3EAFF',17)
-    sl=slide('Сыни ойлау және бағалау',15)
-    panel(sl,d.get('methods',{}).get('critical','Сыни ойлау'),.8,1.6,11.7,1.3,'EAF2FF',22)
-    panel(sl,d.get('middle',{}).get('assessment',''),.8,3.3,11.7,2.5,'FFFFFF',17)
-    sl=slide('Қорытынды және рефлексия',16)
-    panel(sl,d['reflection'],.8,1.6,11.7,2.0,size=20)
-    panel(sl,'Үй тапсырмасы: '+d['homework'],.8,4.1,11.7,1.8,'F2EAFE')
+    sl.background.fill.fore_color.rgb=col(t['dark'])
+    shape(sl,9.55,.15,3.65,3.65,t['main'],MSO_SHAPE.OVAL)
+    shape(sl,10.6,5.0,2.6,2.35,t['accent'],MSO_SHAPE.OVAL)
+    shape(sl,.82,1.0,2.7,.08,t['accent'],MSO_SHAPE.RECTANGLE)
+    txt(sl,'BILIM AI  /  SMART LESSON PRO',.82,.48,10,.38,17,'FFFFFF',True)
+    txt(sl,shorten(meta['topic'],110),.82,1.5,10.3,2.65,39,'FFFFFF',True)
+    txt(sl,f"{meta['subject']}  ·  {meta['grade']}-сынып",.82,5.35,10,.6,22,'DCEBFF')
+    txt(sl,t['name'],.82,6.35,8,.35,14,'FFFFFF')
+    # 02 objective: two-column contrast
+    sl=base('Сабақ мақсаты',2)
+    panel(sl,meta['objective'],.82,1.48,5.6,4.65,t['pale'],19,'Оқу мақсаты')
+    panel(sl,d.get('lesson_goal',''),6.68,1.48,5.82,4.65,t['soft'],19,'Сабақ нәтижесі')
+    # 03 opening / brainstorm
+    sl=base('Ой қозғау · сабаққа кіріспе',3,1)
+    panel(sl,d.get('intro',{}).get('teacher',''),.82,1.5,7.35,4.85,t['pale'],19,'Мұғалімнің сұрағы')
+    panel(sl,d.get('intro',{}).get('student',''),8.43,1.5,4.07,4.85,t['soft'],17,'Оқушы әрекеті')
+    # 04 explanation: limited summary not wall of text
+    sl=base('Жаңа тақырыпты меңгеру',4)
+    explanation=d.get('explanation','')
+    pieces=[x.strip() for x in str(explanation).replace(chr(10),' ').split('.') if x.strip()]
+    summary=['. '.join(pieces[i::3][:2])+'.' for i in range(3)]
+    for i,part in enumerate(summary):panel(sl,part,.83,1.52+i*1.63,11.65,1.4,[t['pale'],t['soft'],'FFFFFF'][i],17,f'НЕГІЗГІ ОЙ {i+1}')
+    # 05 topic diagram
+    sl=base('Тақырыптық инфографика',5)
+    if include_visuals:infographic(sl,d.get('diagram',{}).get('labels',[]))
+    callout(sl,d.get('diagram',{}).get('caption',''),5.32)
+    # 06 concepts: four quadrants
+    sl=base('Негізгі ұғымдар',6)
+    for i,c in enumerate(d.get('concepts',[])[:4]):
+        panel(sl,c.get('meaning',''),.83+(i%2)*5.95,1.48+(i//2)*2.58,5.7,2.3,[t['pale'],t['soft']][i%2],16,c.get('term','Ұғым'))
+    # 07 sequence
+    sl=base('Қадамдық мысал · қалай орындалады?',7)
+    steps=d.get('steps',[])[:5]
+    for i,item in enumerate(steps):
+        y=1.42+i*1.04
+        shape(sl,.85,y,.6,.62,t['main'] if i%2==0 else t['accent'],MSO_SHAPE.OVAL)
+        txt(sl,str(i+1),.85,y,.6,.62,18,'FFFFFF',True)
+        panel(sl,item,1.64,y,10.8,.78,'FFFFFF' if i%2 else t['pale'],15)
+    # 08..13 six activity slides, three layout variations
+    for i,c in enumerate(d.get('cards',[])[:6]):
+        sl=base(f"{i+1}-тапсырма · {c.get('title','')}",8+i,i%2)
+        if i%3==0:
+            panel(sl,c.get('context',''),.82,1.5,4.15,4.65,t['soft'],17,'ЖАҒДАЯТ')
+            panel(sl,c.get('question',''),5.2,1.5,7.3,4.65,t['pale'],20,'ТАПСЫРМА')
+        elif i%3==1:
+            panel(sl,c.get('question',''),.82,1.5,11.65,2.3,t['pale'],21,'НЕ ІСТЕУ КЕРЕК?')
+            if include_visuals:infographic(sl,c.get('visual_labels',[])[:3],4.05)
+            else:panel(sl,c.get('context',''),.82,4.08,11.65,2.1,t['soft'],17)
+        else:
+            if include_visuals:infographic(sl,c.get('visual_labels',[])[:3],1.45)
+            panel(sl,c.get('question',''),.82,4.0,11.65,2.05,t['pale'],19,'ТАЛДАУ / ШЕШІМ')
+        txt(sl,str(c.get('level',''))+'  •  '+str(c.get('kind','')),.93,6.52,10,.34,14,t['main'],True)
+    # 14 game
+    sl=base('Ойын және цифрлық ресурстар',14)
+    methods=d.get('methods',{})
+    panel(sl,methods.get('game','Quizlet / Kahoot / Wordwall'),.82,1.55,11.65,1.5,t['pale'],22,'ОЙЫН ПЛАТФОРМАСЫ')
+    panel(sl,'Мұғалім тақырыпқа сай сұрақтарды таңдалған платформаға енгізеді. Дайын ойын сілтемесі автоматты жасалмайды.',.82,3.45,11.65,2.1,t['soft'],18,'ҚОЛДАНУ')
+    # 15 assessment
+    sl=base('Сыни ойлау және бағалау',15)
+    panel(sl,methods.get('critical','Тақырыптық талдау'),.82,1.5,5.6,4.5,t['pale'],20,'СЫНИ ОЙЛАУ ӘДІСІ')
+    panel(sl,d.get('middle',{}).get('assessment',''),6.67,1.5,5.83,4.5,t['soft'],17,'ДЕСКРИПТОРЛАР')
+    # 16 reflection
+    sl=base('Қорытынды · рефлексия',16)
+    panel(sl,d.get('reflection',''),.82,1.5,7.1,4.75,t['pale'],19,'БҮГІНГІ САБАҚ')
+    panel(sl,d.get('homework',''),8.16,1.5,4.34,4.75,t['soft'],18,'ҮЙ ТАПСЫРМАСЫ')
+    assert len(prs.slides)==16, f'Слайд саны: {len(prs.slides)}'
     out=uniq('.pptx');prs.save(out);return out
 
-def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values):
+def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals):
     missing=[name for name,value in [('Мектеп',school),('Мұғалім',teacher),('Пән',subject),('Сынып',grade),('Тақырып',topic),('Оқу мақсаты',objective)] if not S(value).strip()]
     if missing: raise gr.Error('Міндетті өрістер: '+', '.join(missing))
     meta=dict(school=school,teacher=teacher,day=day,unit=unit,subject=subject,grade=grade,topic=topic,objective=objective,duration=int(duration))
     try:
         d=generate(subject,grade,topic,objective,int(duration),values)
-        word=make_docx(meta,d);lesson,cards=make_html(meta,d);pptx=make_pptx(meta,d)
+        word=make_docx(meta,d);lesson,cards=make_html(meta,d);pptx=make_pptx(meta,d,design_style,include_visuals)
         preview=f'''<div class="pro-preview"><h2>🎓 {E(topic)}</h2><p>🎯 <b>Сабақ мақсаты:</b> {E(d['lesson_goal'])}</p><p>💗 <b>Құндылықтар:</b> {E(d['values'])}</p><p>📊 <b>Тапсырмалар:</b> 6 суретті карточка (жеке, жұптық, функционалдық)</p><p>☷ <b>Тест:</b> 10 сұрақ, автоматты тексеру</p></div>'''
         return preview,word,pptx,lesson,cards,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
     except Exception as e:
@@ -402,7 +506,7 @@ html,body,gradio-app,.gradio-container {background:#f1f6ff!important;color:#1634
 """
 
 with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI — SMART LESSON PRO') as demo:
-    gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 BILIM AI — SMART LESSON PRO</h1><p>Gemini AI · Суретті Word ҚМЖ · PowerPoint · Интерактивті HTML · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
+    gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 BILIM AI — SMART LESSON PRO</h1><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
         with gr.Column(scale=5,min_width=320,elem_id='form-panel'):
             school=gr.Textbox(label='🏫 Мектеп',value='№103 жалпы орта білім беретін мектеп')
@@ -415,6 +519,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
             objective=gr.Textbox(label='🎯 Оқу мақсаты (код және мәтін)',lines=3)
             duration=gr.Dropdown([40,45,80,90],value=45,label='⏱ Сабақ ұзақтығы')
             values=gr.Textbox(label='💗 Құндылықтар',value='Жауапкершілік, ынтымақтастық')
+            gr.Markdown('### 🎨 AI Smart Design — презентация')
+            design_style=gr.Dropdown(choices=[('ЖИ тақырыпқа сай автоматты таңдасын','auto'),('AI / Футуристік','ai'),('Программалау / Ойын','coding'),('Желі / Технология','network'),('Жаратылыстану / Табиғат','science'),('Математика / Дәлдік','math'),('Шығармашылық','creative'),('Заманауи','general')],value='auto',label='Презентация дизайны')
+            gr.Markdown('**Слайд саны: 16 · Формат: 16:9**')
+            include_visuals=gr.Checkbox(label='Тақырыптық инфографика мен векторлық иллюстрациялар',value=True)
             btn=gr.Button('✨ ҚМЖ + презентация + HTML + 6 карточка құру',variant='primary',size='lg')
         with gr.Column(scale=9,min_width=390,elem_id='result-panel'):
             status=gr.HTML('<div class="status-ready">✦ &nbsp; Сабақ мәліметтерін енгізіп, генерация батырмасын басыңыз.</div>')
@@ -423,7 +531,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
                 gr.HTML('<div class="download-copy">📘 <strong>Word ҚМЖ (.docx)</strong><br><small>Суреттермен безендірілген қысқа мерзімді жоспар</small></div>')
                 word=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','ppt']):
-                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>16 слайд, инфографика және тапсырмалар</small></div>')
+                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>16 слайд, AI Smart Design және инфографика</small></div>')
                 ppt=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🌐 <strong>Интерактивті HTML сабағы</strong><br><small>Түсіндірме, тапсырмалар және 10 сұрақтық тест</small></div>')
@@ -432,6 +540,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI 
                 gr.HTML('<div class="download-copy">🎨 <strong>6 Premium карточка (HTML)</strong><br><small>9:16 форматындағы суретті тапсырмалар</small></div>')
                 cards=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
-    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values],outputs=[preview,word,ppt,lesson,cards,status],show_progress='full')
+    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
 demo.launch(server_name='0.0.0.0',server_port=7860,share=False,show_error=True)
