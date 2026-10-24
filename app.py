@@ -769,7 +769,7 @@ CSS += r"""
 #result-panel .download-row.web .download-button button {background:#1767f5 !important;}
 #result-panel .download-row.cards .download-button button {background:#8538df !important;}
 """
-with gr.Blocks(theme=LIGHT_THEME,css=CSS,title='BILIM AI — SMART LESSON PRO') as demo:
+with gr.Blocks(title='BILIM AI — SMART LESSON PRO') as demo:
     gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 BILIM AI — SMART LESSON PRO</h1><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
         with gr.Column(scale=5,min_width=320,elem_id='form-panel'):
@@ -811,7 +811,7 @@ with gr.Blocks(theme=LIGHT_THEME,css=CSS,title='BILIM AI — SMART LESSON PRO') 
     btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
 # Mount Gradio under the same FastAPI app so Canva /canva/callback works on Render.
-app = gr.mount_gradio_app(canva_app, demo, path='/')
+app = gr.mount_gradio_app(canva_app, demo, path='/', theme=LIGHT_THEME, css=CSS)
 
 if __name__ == '__main__':
     import uvicorn
