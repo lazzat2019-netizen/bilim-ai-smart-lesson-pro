@@ -737,7 +737,39 @@ gradio-app .gradio-container, gradio-app main, gradio-app .main, gradio-app .con
 """
 CSS = CSS + "\n" + LIGHT_RESTORE_CSS
 
-with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI — SMART LESSON PRO') as demo:
+# Explicitly override Gradio dark theme tokens (including browser/system dark mode).
+LIGHT_THEME = gr.themes.Soft(primary_hue='blue', secondary_hue='violet', neutral_hue='slate').set(
+    body_background_fill='#f1f6ff',
+    body_background_fill_dark='#f1f6ff',
+    body_text_color='#17345e',
+    body_text_color_dark='#17345e',
+    background_fill_primary='#ffffff',
+    background_fill_primary_dark='#ffffff',
+    background_fill_secondary='#f1f6ff',
+    background_fill_secondary_dark='#f1f6ff',
+    block_background_fill='#ffffff',
+    block_background_fill_dark='#ffffff',
+    block_label_background_fill='#ffffff',
+    block_label_background_fill_dark='#ffffff',
+    block_label_text_color='#164f9d',
+    block_label_text_color_dark='#164f9d',
+    input_background_fill='#ffffff',
+    input_background_fill_dark='#ffffff',
+    input_border_color='#d8e2ee',
+    input_border_color_dark='#d8e2ee',
+    button_primary_background_fill='#246cf9',
+    button_primary_background_fill_dark='#246cf9',
+    button_primary_text_color='#ffffff',
+    button_primary_text_color_dark='#ffffff',
+)
+CSS += r"""
+.gradio-container, .gradio-container.dark, gradio-app, gradio-app.dark { background:#f1f6ff !important; color:#17345e !important; }
+#result-panel .download-row .download-button button {background:#08a76b !important;color:#fff !important;}
+#result-panel .download-row.ppt .download-button button {background:#f47716 !important;}
+#result-panel .download-row.web .download-button button {background:#1767f5 !important;}
+#result-panel .download-row.cards .download-button button {background:#8538df !important;}
+"""
+with gr.Blocks(theme=LIGHT_THEME,css=CSS,title='BILIM AI — SMART LESSON PRO') as demo:
     gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 BILIM AI — SMART LESSON PRO</h1><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
         with gr.Column(scale=5,min_width=320,elem_id='form-panel'):
