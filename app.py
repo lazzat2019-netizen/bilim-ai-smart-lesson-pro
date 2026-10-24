@@ -806,6 +806,11 @@ with gr.Blocks(title='BILIM AI — SMART LESSON PRO') as demo:
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
                 canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
+            gr.HTML("""<div class="help-panel" style="background:#eef2ff!important;border:1px solid #c7d2fe!important;margin:12px 0">
+              <div style="font-size:19px;font-weight:800;color:#243d92;margin-bottom:8px">✦ ChatGPT Edu — презентация жасау</div>
+              <p style="color:#304569">ChatGPT-ті жаңа қойындыда ашып, сабаққа арналған презентация дайындаңыз. Edu аккаунтыңызға кіріп тұрғаныңызды тексеріңіз.</p>
+              <a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(100deg,#245ee8,#7544d9);color:#fff!important;padding:13px 22px;border-radius:12px;font-weight:800;text-decoration:none">↗ ChatGPT Edu ашу</a>
+            </div>""")
             gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
     btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
