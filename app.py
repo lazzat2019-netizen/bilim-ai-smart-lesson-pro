@@ -702,6 +702,41 @@ html,body,gradio-app,.gradio-container {background:#f1f6ff!important;color:#1634
 @media(max-width:900px){#bilim-hero h1{font-size:23px!important;}#bilim-hero .hero-icons{width:100%;}#bilim-hero .hero-icon{flex:1;min-width:0;}#form-panel,#result-panel{padding:12px!important;}}
 """
 
+
+# Restore the original light blue/white interface even when the browser prefers dark mode.
+LIGHT_RESTORE_CSS = r"""
+:root, html, body, gradio-app, .gradio-container, .gradio-container.dark {
+ color-scheme: light !important; --body-background-fill:#f1f6ff !important;
+ --background-fill-primary:#ffffff !important; --background-fill-secondary:#f1f6ff !important;
+ --block-background-fill:#ffffff !important; --block-label-background-fill:#ffffff !important;
+ --body-text-color:#17345e !important; --block-label-text-color:#164f9d !important;
+ --input-background-fill:#ffffff !important; --input-text-color:#17345e !important;
+ --button-primary-background-fill:#2563eb !important; --button-primary-text-color:#ffffff !important;
+ --button-secondary-background-fill:#e9f1ff !important; --button-secondary-text-color:#17418a !important;
+ background:#f1f6ff !important; color:#17345e !important;
+}
+@media (prefers-color-scheme: dark) {
+ :root,html,body,gradio-app,.gradio-container {color-scheme:light !important;background:#f1f6ff !important;color:#17345e !important;}
+}
+gradio-app .gradio-container, gradio-app main, gradio-app .main, gradio-app .contain {background:#f1f6ff !important;color:#17345e !important;}
+#form-panel,#result-panel {background:#ffffff !important;color:#17345e !important;border:1px solid #dce7f7 !important;border-radius:20px !important;}
+#form-panel input,#form-panel textarea,#form-panel select,#form-panel [role=combobox] {background:#ffffff !important;color:#17345e !important;border:1px solid #ccd9ec !important;}
+#form-panel label,#form-panel label span,#result-panel label {color:#17418a !important;}
+#bilim-hero {background:linear-gradient(110deg,#1265f3,#4a55ed 55%,#9739ec) !important;padding:25px !important;}
+#bilim-hero h1 {color:white !important;font-size:clamp(26px,3vw,38px) !important;}
+#result-panel .download-row {background:#e9faf3 !important;border-radius:14px !important;}
+#result-panel .download-row.ppt {background:#fff4e8 !important;}
+#result-panel .download-row.web {background:#e8f2ff !important;}
+#result-panel .download-row.cards {background:#f3eaff !important;}
+#result-panel .download-row .download-button button {background:#08a76b !important;color:white !important;}
+#result-panel .download-row.ppt .download-button button {background:#f47716 !important;}
+#result-panel .download-row.web .download-button button {background:#1767f5 !important;}
+#result-panel .download-row.cards .download-button button {background:#8538df !important;}
+#result-panel .pro-preview {background:#eaf3ff !important;color:#17345e !important;}
+#result-panel .help-panel {background:#fff8e5 !important;color:#17345e !important;}
+"""
+CSS = CSS + "\n" + LIGHT_RESTORE_CSS
+
 with gr.Blocks(theme=gr.themes.Soft(primary_hue='blue'),css=CSS,title='BILIM AI — SMART LESSON PRO') as demo:
     gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 BILIM AI — SMART LESSON PRO</h1><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
