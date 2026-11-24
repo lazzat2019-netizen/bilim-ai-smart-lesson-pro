@@ -15,6 +15,7 @@ import cairosvg
 # Render: Environment > GEMINI_API_KEY (never hardcode a key)
 API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite')
+FALLBACK_MODEL = os.environ.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash-lite').strip()
 client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=120000)) if API_KEY else None
 ROOT = Path(tempfile.gettempdir()) / 'bilim_ai_pro'
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -183,22 +184,53 @@ def generate(subject,grade,topic,objective,duration,values):
 Осы әдістерді intro/middle/end teacher, student, assessment, resources өрістеріне нақты орналастыр.
 Жаңа сабақта оқушының сыни ойлауын және функционалдық сауаттылығын дамыт.
 Нейрондық желі IP желісі емес. Әр пәнге өзіне сәйкес диаграмма жаса. Қазақ тілінде жауап бер.''' 
-    last=None
-    for attempt in range(2):
-        try:
-            resp=client.models.generate_content(model=MODEL,contents=prompt,
-              config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=schema,temperature=0.25,max_output_tokens=11000))
-            result=normalize(json.loads(resp.text))
-            result['methods']=selected
-            for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),('middle','Сыни ойлау','critical'),('end','Рефлексия','reflection')]:
-                if selected[key].lower() not in result[phase]['teacher'].lower():
-                    result[phase]['teacher'] += '\n' + label + ': ' + selected[key]
-            result['middle']['resources'] += '\nОйын платформасы: ' + selected['game']
-            result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
-            return result
-        except Exception as e:
-            last=e
-    raise RuntimeError(f'Gemini жауап құрылымын жасау мүмкін болмады: {str(last)[:260]}')
+    # Retry only temporary server/rate-limit failures, not malformed input or API-key errors.
+    def transient_error(exc):
+        code = getattr(exc, 'code', None)
+        status = str(getattr(exc, 'status', '')).upper()
+        msg = str(exc).upper()
+        return (code in (429, 500, 502, 503, 504)
+                or status in ('UNAVAILABLE', 'RESOURCE_EXHAUSTED', 'INTERNAL', 'DEADLINE_EXCEEDED')
+                or any(x in msg for x in ('503 UNAVAILABLE', '429 RESOURCE_EXHAUSTED',
+                                          '500 INTERNAL', '502 BAD_GATEWAY',
+                                          '504 DEADLINE_EXCEEDED', 'HIGH DEMAND')))
+
+    models = [MODEL]
+    if FALLBACK_MODEL and FALLBACK_MODEL != MODEL:
+        models.append(FALLBACK_MODEL)
+    last = None
+    for model_index, model_name in enumerate(models):
+        for attempt in range(3):
+            try:
+                resp = client.models.generate_content(
+                    model=model_name, contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type='application/json', response_schema=schema,
+                        temperature=0.25, max_output_tokens=11000))
+                if not resp.text:
+                    raise ValueError('Gemini бос жауап қайтарды')
+                result = normalize(json.loads(resp.text))
+                result['methods'] = selected
+                for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),
+                                          ('middle','Сыни ойлау','critical'),
+                                          ('end','Рефлексия','reflection')]:
+                    if selected[key].lower() not in result[phase]['teacher'].lower():
+                        result[phase]['teacher'] += '\n' + label + ': ' + selected[key]
+                result['middle']['resources'] += '\nОйын платформасы: ' + selected['game']
+                result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
+                return result
+            except Exception as exc:
+                last = exc
+                if not transient_error(exc):
+                    # Invalid model/config, authentication, and schema problems should
+                    # be reported, rather than repeatedly consuming requests.
+                    if 'NOT_FOUND' in str(exc).upper() and model_index + 1 < len(models):
+                        break
+                    raise RuntimeError('Gemini сұранысы орындалмады. Модель атауын, API кілтін және жауап пішімін тексеріңіз. ' + str(exc)[:180]) from exc
+                if attempt < 2:
+                    time.sleep(min(12, 2 ** attempt * 3))
+        # All retries for this model failed; try the configured fallback.
+    raise RuntimeError('Gemini сервері уақытша бос емес (503/429). Негізгі және балама модельдерге қайталап сұраныс жіберілді. Біраздан кейін қайталап көріңіз.') from last
 
 def svg_diagram(labels,caption=''):
     labels=[S(x).strip() for x in (labels or []) if S(x).strip()][:4]
