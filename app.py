@@ -302,6 +302,80 @@ def generate(subject,grade,topic,objective,duration,values):
     result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
     return result
 
+# Offline, deterministic lesson library. No Gemini requests in this mode.
+# The curated topic is kept separate from the generic editable outline.
+def offline_lesson(subject, grade, topic, objective, duration, values):
+    selected = select_methods(subject, grade, topic, objective)
+    t = str(topic).lower()
+    logic = any(x in t for x in ('ақиқат кест', 'логикалық амал', 'логикалық өрнек', 'логикалық функция'))
+    if logic:
+        explanation = ('Ақиқат кестесі логикалық өрнектің барлық ықтимал кіріс мәндеріндегі нәтижесін көрсетеді. '
+          '0 — жалған, 1 — ақиқат. ЕМЕС (NOT) мәнді кері өзгертеді. ЖӘНЕ (AND) тек екі мән де 1 болғанда 1 болады. '
+          'НЕМЕСЕ (OR) кемінде бір мән 1 болса 1 болады. XOR мәндер әртүрлі болса 1 болады. '
+          'Импликация A→B тек A=1, B=0 кезінде жалған. Эквиваленттілік A↔B екі мән бірдей болса ақиқат. '
+          'Екі айнымалыға төрт комбинация жазылады: 00, 01, 10, 11. Алдымен жақша ішіндегі амалдарды есептеңіз.')
+        concepts = [
+          dict(term='ЖӘНЕ (AND)',meaning='Екі кіріс те 1 болғанда ғана 1.',example='1 AND 0 = 0'),
+          dict(term='НЕМЕСЕ (OR)',meaning='Кемінде бір кіріс 1 болса 1.',example='0 OR 1 = 1'),
+          dict(term='ЕМЕС (NOT)',meaning='0-ді 1-ге, 1-ді 0-ге өзгертеді.',example='NOT 1 = 0'),
+          dict(term='XOR',meaning='Кіріс мәндері әртүрлі болса 1.',example='1 XOR 0 = 1')]
+        steps=['A және B үшін 00, 01, 10, 11 комбинацияларын жазыңыз.',
+               'Әр жолда алдымен NOT амалын есептеңіз.',
+               'Жақшалардағы AND, OR немесе XOR амалдарын орындаңыз.',
+               'Нәтижені соңғы бағанға жазыңыз және тексеріңіз.']
+        examples=[('AND қақпасы','1 AND 0 мәнін табыңыз.','0'),
+                  ('OR қақпасы','0 OR 1 мәнін табыңыз.','1'),
+                  ('NOT қақпасы','NOT 0 мәнін табыңыз.','1'),
+                  ('XOR қақпасы','1 XOR 1 мәнін табыңыз.','0'),
+                  ('Импликация','A=1, B=0 болса, A→B мәнін табыңыз.','0'),
+                  ('Эквиваленттілік','A=0, B=0 болса, A↔B мәнін табыңыз.','1')]
+        questions=[('1 AND 1 мәні?', ['0','1','2','Анықталмайды'],1),
+          ('1 AND 0 мәні?', ['1','0','2','3'],1),
+          ('0 OR 1 мәні?', ['0','1','2','3'],1),
+          ('NOT 1 мәні?', ['1','2','0','3'],2),
+          ('1 XOR 1 мәні?', ['1','0','2','3'],1),
+          ('1 XOR 0 мәні?', ['0','1','2','3'],1),
+          ('A→B қашан жалған?', ['A=0,B=0','A=0,B=1','A=1,B=0','A=1,B=1'],2),
+          ('A↔B қашан ақиқат?', ['Әртүрлі болса','Бірдей болса','Тек A=1 болса','Ешқашан'],1),
+          ('Екі айнымалы үшін неше жол?', ['2','3','4','8'],2),
+          ('0 AND 0 мәні?', ['1','0','2','4'],1)]
+        diagram=['Кіріс A','Кіріс B','Логикалық амал','Нәтиже']
+    else:
+        explanation=(f'«{topic}» тақырыбы бойынша мұғалім толықтыратын резервтік сабақ қаңқасы. '
+          f'Оқу мақсаты: {objective}. Бұл бөлім Gemini-ден алынған жаңа теория емес. '
+          'Оқулықтағы анықтаманы, дұрыс мысалды және тақырыптық есептерді мұғалім енгізуі қажет.')
+        concepts=[dict(term='Негізгі ұғым',meaning='Оқулықтан анықтаманы енгізіңіз.',example='Мысалды толтырыңыз.'),
+          dict(term='Қолдану',meaning='Тақырыптың қолданылуын түсіндіріңіз.',example='Өмірлік мысал енгізіңіз.'),
+          dict(term='Талдау',meaning='Мысалды қадамдарға бөліңіз.',example='Талдау үлгісін енгізіңіз.'),
+          dict(term='Қорытынды',meaning='Негізгі нәтижені тұжырымдаңыз.',example='Қысқаша жауап енгізіңіз.')]
+        steps=['Оқулықтан негізгі анықтаманы таңдаңыз.','Бір мысалды талдаңыз.',
+               'Оқушыларға практикалық тапсырма беріңіз.','Нәтижені бағалау критерийімен тексеріңіз.']
+        examples=[(f'{i+1}-тапсырма',f'«{topic}» бойынша {i+1}-тапсырманың шартын мұғалім енгізеді.',
+                   'Мұғалім жауап кілтін толтырады.') for i in range(6)]
+        questions=[(f'{topic}: {i+1}-сұрақты мұғалім толтырады.',
+                    ['1-нұсқаны толтыру','2-нұсқаны толтыру','3-нұсқаны толтыру','4-нұсқаны толтыру'],0) for i in range(10)]
+        diagram=['Тақырып','Түсіну','Қолдану','Тексеру']
+    cards=[dict(title=name,level=('Жеңіл' if i<2 else 'Орташа' if i<4 else 'Күрделі'),
+        kind=['бос орын','сәйкестендіру','суретті талдау','есеп','функционалдық сауаттылық','шығармашылық'][i],
+        context=f'{grade}-сынып. {topic}.',question=q,hint='Алдымен ережені еске түсіріңіз.',
+        answer=a,visual_labels=[name,'Шешім']) for i,(name,q,a) in enumerate(examples)]
+    quiz=[dict(q=q,options=opts,answer=ans,explanation=('Логикалық амалдың ақиқат кестесін қараңыз.' if logic else 'Бұл — мұғалім толтыратын үлгі сұрақ.'))
+          for q,opts,ans in questions]
+    result=dict(lesson_goal=f'{objective} мақсаты бойынша негізгі ұғымдарды түсіну және тапсырма орындау.',
+        values=values,ai_usage='Резервтік офлайн үлгі; Gemini қолданылған жоқ.',
+        intro=dict(teacher=f'{selected["brainstorm"]}: «{topic}» туралы бастапқы білімді анықтаңыз.',
+          student='Болжам айтады, сұрақтарға жауап береді.',assessment='Ауызша кері байланыс.',resources='Оқулық, тақта.'),
+        middle=dict(teacher=f'{explanation} Мысалдарды талдатып, {selected["critical"]} әдісін қолданыңыз.',
+          student='Мысалдарды талдайды, 6 тапсырманы орындайды.',
+          assessment='Әр тапсырмаға 3 балл: ереже, шешім, түсіндіру.',resources='Оқулық, тапсырма парағы.'),
+        end=dict(teacher=f'{selected["reflection"]} әдісімен қорытынды жасаңыз.',
+          student='Не үйренгенін және қиындықтарын атайды.',assessment='Өзін-өзі бағалау.',resources='Рефлексия парағы.'),
+        explanation=explanation,concepts=concepts,steps=steps,
+        diagram=dict(labels=diagram,caption='Ақиқат кестесінің орындалу реті' if logic else 'Мұғалім толықтыратын сабақ қаңқасы'),
+        cards=cards,quiz=quiz,reflection='Бүгін не үйрендім? Қай тапсырма қиын болды? Қайда қолданамын?',
+        homework='Оқулықтағы тақырыпты қайталау және 2 мысал орындау.',methods=selected)
+    return normalize(result), ('Ақиқат кестесі: тексерілген дайын мазмұн' if logic else 'Жалпы өңделетін үлгі: мұғалім толықтыруы қажет')
+
 def svg_diagram(labels,caption=''):
     labels=[S(x).strip() for x in (labels or []) if S(x).strip()][:4]
     if not labels: labels=['Негізгі ұғым','Талдау','Нәтиже']
@@ -689,10 +763,18 @@ def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,de
     if missing: raise gr.Error('Міндетті өрістер: '+', '.join(missing))
     meta=dict(school=school,teacher=teacher,day=day,unit=unit,subject=subject,grade=grade,topic=topic,objective=objective,duration=int(duration))
     try:
-        d=generate(subject,grade,topic,objective,int(duration),values)
+        fallback_note = ''
+        try:
+            d=generate(subject,grade,topic,objective,int(duration),values)
+        except Exception as gemini_error:
+            print('[Smart Teacher] Gemini failed, activating offline template:', type(gemini_error).__name__, flush=True)
+            d, fallback_note = offline_lesson(subject,grade,topic,objective,int(duration),values)
         word=make_docx(meta,d);lesson,cards=make_html(meta,d);pptx=make_pptx(meta,d,design_style,include_visuals)
         preview=f'''<div class="pro-preview"><h2>🎓 {E(topic)}</h2><p>🎯 <b>Сабақ мақсаты:</b> {E(d['lesson_goal'])}</p><p>💗 <b>Құндылықтар:</b> {E(d['values'])}</p><p>📊 <b>Тапсырмалар:</b> 6 суретті карточка (жеке, жұптық, функционалдық)</p><p>☷ <b>Тест:</b> 10 сұрақ, автоматты тексеру</p></div>'''
-        return preview,word,pptx,lesson,cards,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
+        if fallback_note:
+            preview = '<div style="padding:14px;background:#fff3d9;border-radius:12px;color:#6b4100"><b>⚠ Резервтік режим:</b> '+E(fallback_note)+'. Материалдарды сабақта қолданар алдында тексеріңіз.</div>' + preview
+        status_html = ('<div class="status-ready">⚠ Gemini қолжетімсіз. Резервтік үлгі дайындалды; мазмұнын тексеріңіз.</div>' if fallback_note else '<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>')
+        return preview,word,pptx,lesson,cards,status_html
     except Exception as e:
         raise gr.Error('Генерация қатесі: '+str(e)[:450])
 
