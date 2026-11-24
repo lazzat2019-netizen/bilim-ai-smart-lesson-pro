@@ -15,7 +15,7 @@ import cairosvg
 # Render: Environment > GEMINI_API_KEY (never hardcode a key)
 API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite')
-FALLBACK_MODEL = os.environ.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash-lite').strip()
+FALLBACK_MODEL = os.environ.get('GEMINI_FALLBACK_MODEL', '').strip()
 client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=120000)) if API_KEY else None
 ROOT = Path(tempfile.gettempdir()) / 'bilim_ai_pro'
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -184,53 +184,77 @@ def generate(subject,grade,topic,objective,duration,values):
 Осы әдістерді intro/middle/end teacher, student, assessment, resources өрістеріне нақты орналастыр.
 Жаңа сабақта оқушының сыни ойлауын және функционалдық сауаттылығын дамыт.
 Нейрондық желі IP желісі емес. Әр пәнге өзіне сәйкес диаграмма жаса. Қазақ тілінде жауап бер.''' 
-    # Retry only temporary server/rate-limit failures, not malformed input or API-key errors.
+    # Generate three smaller JSON responses to avoid truncated long JSON.
     def transient_error(exc):
         code = getattr(exc, 'code', None)
-        status = str(getattr(exc, 'status', '')).upper()
         msg = str(exc).upper()
-        return (code in (429, 500, 502, 503, 504)
-                or status in ('UNAVAILABLE', 'RESOURCE_EXHAUSTED', 'INTERNAL', 'DEADLINE_EXCEEDED')
-                or any(x in msg for x in ('503 UNAVAILABLE', '429 RESOURCE_EXHAUSTED',
-                                          '500 INTERNAL', '502 BAD_GATEWAY',
-                                          '504 DEADLINE_EXCEEDED', 'HIGH DEMAND')))
+        return code in (429, 500, 502, 503, 504) or any(
+            x in msg for x in ('503 UNAVAILABLE', '429 RESOURCE_EXHAUSTED',
+            '500 INTERNAL', '502 BAD_GATEWAY', '504 DEADLINE_EXCEEDED', 'HIGH DEMAND'))
 
-    models = [MODEL]
-    if FALLBACK_MODEL and FALLBACK_MODEL != MODEL:
-        models.append(FALLBACK_MODEL)
-    last = None
-    for model_index, model_name in enumerate(models):
-        for attempt in range(3):
-            try:
-                resp = client.models.generate_content(
-                    model=model_name, contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type='application/json', response_schema=schema,
-                        temperature=0.25, max_output_tokens=11000))
-                if not resp.text:
-                    raise ValueError('Gemini бос жауап қайтарды')
-                result = normalize(json.loads(resp.text))
-                result['methods'] = selected
-                for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),
-                                          ('middle','Сыни ойлау','critical'),
-                                          ('end','Рефлексия','reflection')]:
-                    if selected[key].lower() not in result[phase]['teacher'].lower():
-                        result[phase]['teacher'] += '\n' + label + ': ' + selected[key]
-                result['middle']['resources'] += '\nОйын платформасы: ' + selected['game']
-                result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
-                return result
-            except Exception as exc:
-                last = exc
-                if not transient_error(exc):
-                    # Invalid model/config, authentication, and schema problems should
-                    # be reported, rather than repeatedly consuming requests.
-                    if 'NOT_FOUND' in str(exc).upper() and model_index + 1 < len(models):
-                        break
-                    raise RuntimeError('Gemini сұранысы орындалмады. Модель атауын, API кілтін және жауап пішімін тексеріңіз. ' + str(exc)[:180]) from exc
-                if attempt < 2:
-                    time.sleep(min(12, 2 ** attempt * 3))
-        # All retries for this model failed; try the configured fallback.
-    raise RuntimeError('Gemini сервері уақытша бос емес (503/429). Негізгі және балама модельдерге қайталап сұраныс жіберілді. Біраздан кейін қайталап көріңіз.') from last
+    def request_part(part_name, keys, instruction):
+        part_schema = {'type': 'OBJECT',
+                       'properties': {k: schema['properties'][k] for k in keys},
+                       'required': list(keys)}
+        models = [MODEL]
+        if FALLBACK_MODEL and FALLBACK_MODEL != MODEL:
+            models.append(FALLBACK_MODEL)
+        last = None
+        for model_name in models:
+            for attempt in range(3):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt + '\n\nҚАЗІР ТЕК МЫНА БӨЛІКТІ ЖАЗ: ' + instruction +
+                                 '\nТек сұралған JSON өрістерін қайтар. Қысқа, нақты және толық жаз.',
+                        config=types.GenerateContentConfig(
+                            response_mime_type='application/json',
+                            response_schema=part_schema,
+                            temperature=0.2, max_output_tokens=6500))
+                    raw = response.text or ''
+                    if not raw.strip():
+                        raise ValueError('Gemini бос жауап қайтарды')
+                    try:
+                        data = json.loads(raw)
+                    except json.JSONDecodeError as err:
+                        raise ValueError('JSON толық емес немесе қате: ' + str(err)) from err
+                    if not isinstance(data, dict) or any(k not in data for k in keys):
+                        raise ValueError('JSON өрістері толық емес')
+                    if part_name == 'cards' and len(data.get('cards', [])) != 6:
+                        raise ValueError('Дәл 6 карточка алынбады')
+                    if part_name == 'quiz' and len(data.get('quiz', [])) != 10:
+                        raise ValueError('Дәл 10 тест сұрағы алынбады')
+                    return data
+                except Exception as exc:
+                    last = exc
+                    message = str(exc).upper()
+                    if 'NOT_FOUND' in message or 'NOT SUPPORTED' in message:
+                        break  # Do not retry unavailable model; try next configured model.
+                    malformed = isinstance(exc, (ValueError, json.JSONDecodeError))
+                    if not malformed and not transient_error(exc):
+                        raise RuntimeError('Gemini сұранысы орындалмады: ' + str(exc)[:200]) from exc
+                    if attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+        raise RuntimeError(f'{part_name} бөлігін дайындау мүмкін болмады: {str(last)[:180]}') from last
+
+    lesson_keys = ['lesson_goal','values','ai_usage','intro','middle','end',
+                   'explanation','concepts','steps','diagram','reflection','homework']
+    result = request_part('lesson', lesson_keys,
+        'ҚМЖ, түсіндірме, ұғымдар, қадамдар, сызба, рефлексия және үй тапсырмасы.')
+    result.update(request_part('cards', ['cards'],
+        'ДӘЛ 6 әртүрлі деңгейдегі тақырыптық карточка. Әр тапсырмаға қысқа, нақты жауап пен көрнекі белгілер бер.'))
+    result.update(request_part('quiz', ['quiz'],
+        'ДӘЛ 10 төрт жауапты тест. Дұрыс жауап индексі 0-3, түсіндірмесі қысқа болсын.'))
+    result = normalize(result)
+    result['methods'] = selected
+    for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),
+                              ('middle','Сыни ойлау','critical'),
+                              ('end','Рефлексия','reflection')]:
+        if selected[key].lower() not in result[phase]['teacher'].lower():
+            result[phase]['teacher'] += '\n' + label + ': ' + selected[key]
+    result['middle']['resources'] += '\nОйын платформасы: ' + selected['game']
+    result['middle']['assessment'] += '\nБағалау әдісі: ' + selected['assessment']
+    return result
 
 def svg_diagram(labels,caption=''):
     labels=[S(x).strip() for x in (labels or []) if S(x).strip()][:4]
