@@ -205,13 +205,14 @@ def generate(subject,grade,topic,objective,duration,values):
         models = [MODEL]
         if FALLBACK_MODEL and FALLBACK_MODEL != MODEL:
             models.append(FALLBACK_MODEL)
-        last = None
+        failures = []
         for model_name in models:
-            for attempt in range(3):
+            # A busy or rate-limited model is skipped immediately, not retried three times.
+            for attempt in range(2):
                 try:
-                    # Shorter retry output helps if the model truncated the previous JSON.
                     brevity = (' Әр мәтін 1-2 қысқа сөйлем болсын; JSON міндетті түрде аяқталсын.'
                                if attempt else '')
+                    print(f'[Gemini] part={part_name} model={model_name} attempt={attempt+1}', flush=True)
                     response = client.models.generate_content(
                         model=model_name,
                         contents=context + '\n' + instruction + brevity,
@@ -225,30 +226,48 @@ def generate(subject,grade,topic,objective,duration,values):
                     try:
                         data = json.loads(raw)
                     except json.JSONDecodeError as err:
-                        raise ValueError('JSON толық емес немесе қате: ' + str(err)) from err
+                        raise ValueError('JSON толық емес: ' + str(err)) from err
                     if not isinstance(data, dict) or any(k not in data for k in keys):
                         raise ValueError('JSON өрістері толық емес')
                     if part_name == 'cards' and len(data.get('cards', [])) != 6:
                         raise ValueError('Карточка саны 6 болуы тиіс')
                     if part_name == 'quiz' and len(data.get('quiz', [])) != 10:
                         raise ValueError('Тест саны 10 болуы тиіс')
+                    print(f'[Gemini] OK part={part_name} model={model_name}', flush=True)
                     return data
                 except Exception as exc:
-                    last = exc
                     message = str(exc).upper()
-                    if 'NOT_FOUND' in message or 'NOT SUPPORTED' in message or '404' in message:
+                    code = getattr(exc, 'code', None)
+                    if code is None:
+                        code = getattr(exc, 'status_code', None)
+                    if code == 503 or '503' in message or 'UNAVAILABLE' in message or 'HIGH DEMAND' in message:
+                        category = '503'
+                    elif code == 429 or '429' in message or 'RESOURCE_EXHAUSTED' in message:
+                        category = '429'
+                    elif code == 404 or '404' in message or 'NOT_FOUND' in message or 'NOT SUPPORTED' in message:
+                        category = '404'
+                    elif isinstance(exc, (ValueError, json.JSONDecodeError)):
+                        category = 'JSON'
+                    elif transient_error(exc):
+                        category = 'TEMPORARY'
+                    else:
+                        category = 'OTHER'
+                    failures.append((model_name, category))
+                    print(f'[Gemini] FAIL part={part_name} model={model_name} kind={category}', flush=True)
+                    # Do not burn quota or wait on a model that is currently unavailable.
+                    if category in ('503', '429', '404'):
                         break
-                    # Quota exhaustion is not fixed by retrying the same model.
-                    if 'RESOURCE_EXHAUSTED' in message or '429' in message:
-                        break
-                    malformed = isinstance(exc, (ValueError, json.JSONDecodeError))
-                    if not malformed and not transient_error(exc):
-                        raise RuntimeError('Gemini сұранысы орындалмады: ' + str(exc)[:200]) from exc
-                    if attempt < 2:
-                        time.sleep(2 * (attempt + 1))
-        if last is not None and ('429' in str(last) or 'RESOURCE_EXHAUSTED' in str(last).upper()):
-            raise RuntimeError('Gemini API лимиті уақытша немесе тәуліктік деңгейде таусылды. Google AI Studio → Rate Limit бөлімін тексеріңіз. Резервтік модель де қолжетімсіз болуы мүмкін.') from last
-        raise RuntimeError(f'{part_name} бөлігін дайындау мүмкін болмады: {str(last)[:180]}') from last
+                    if category == 'OTHER':
+                        raise RuntimeError('Gemini сұранысы орындалмады: ' + str(exc)[:180]) from exc
+                    if attempt == 0:
+                        time.sleep(1)
+        summary = ', '.join(f'{name}: {kind}' for name, kind in failures[-4:])
+        if failures and all(kind in ('503', '429') for _, kind in failures):
+            raise RuntimeError(
+                'Gemini сервері бос емес немесе сұраныс лимиті шектелген. '
+                'Негізгі және резервтік модель тексерілді. Кейінірек қайталаңыз. '
+                f'Тексеру: {summary}')
+        raise RuntimeError(f'{part_name} бөлігін дайындау мүмкін болмады. Модель тексеруі: {summary}')
 
     result = {}
     result.update(request_part('plan', ['lesson_goal','values','ai_usage','intro','middle','end'],
