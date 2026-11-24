@@ -694,6 +694,67 @@ def canva_design_pack(meta, data, pptx_path, design_style='auto'):
         z.writestr('CANVA_IMPORT_README.txt',guide)
     return zip_path
 
+# Standalone infographic: generated directly on Smart Teacher, independent of full lesson.
+def make_standalone_infographic(subject, grade, topic, objective, design_style):
+    if not str(topic or '').strip():
+        raise gr.Error('Алдымен сабақ тақырыбын енгізіңіз.')
+    import textwrap
+    from xml.sax.saxutils import escape as xesc
+    meta={'subject':subject or 'Пән', 'grade':grade or '7', 'topic':topic}
+    theme=choose_design(meta,design_style)
+    points=[]
+    subtitle=str(objective or '').strip()
+    # A small AI request gives topic-specific short labels; infographic still works if API is unavailable.
+    if client:
+        try:
+            prompt=('Қазақ тілінде білім беру инфографикасына арналған 4 қысқа, нақты факт дайында. '
+                    'Әр факт осы сабақ тақырыбына тікелей қатысты болсын. '
+                    'Тек JSON: {"items":[{"title":"...","detail":"..."}, ...]} '
+                    'Дәл 4 элемент, әр title 2-5 сөз, detail 8-17 сөз. '
+                    f'Пән: {subject}. Сынып: {grade}. Тақырып: {topic}. Оқу мақсаты: {objective}.')
+            result=client.models.generate_content(model=MODEL,contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type='application/json',temperature=0.2,max_output_tokens=1100))
+            points=json.loads(result.text or '{}').get('items',[])
+            points=[x for x in points if isinstance(x,dict) and x.get('title') and x.get('detail')][:4]
+        except Exception:
+            points=[]
+    if len(points)!=4:
+        # Transparent fallback, no fabricated topic facts: use topic and learning objective as labels.
+        points=[{'title':'Тақырып','detail':str(topic)},
+                {'title':'Оқу мақсаты','detail':subtitle or 'Тақырыптың негізгі ұғымдарын түсіну'},
+                {'title':'Түсіну','detail':'Негізгі ұғымдарды анықтап, мысалдармен түсіндіріңіз.'},
+                {'title':'Қолдану','detail':'Алған білімді практикалық тапсырмада қолданыңыз.'}]
+    dark='#'+theme['dark']; main='#'+theme['main']; accent='#'+theme['accent']
+    def lines(value,limit,maxlines):
+        text=' '.join(str(value or '').split())
+        arr=textwrap.wrap(text,width=limit,break_long_words=True,break_on_hyphens=False)
+        if len(arr)>maxlines:
+            arr=arr[:maxlines];arr[-1]=arr[-1].rstrip(' .')+'…'
+        return arr
+    def text_lines(value,x,y,limit,size,color,maxlines=3,step=None,weight='600'):
+        step=step or int(size*1.36)
+        return ''.join(f'<text x="{x}" y="{y+i*step}" font-family="DejaVu Sans,Arial,sans-serif" font-size="{size}" font-weight="{weight}" fill="{color}">{xesc(t)}</text>' for i,t in enumerate(lines(value,limit,maxlines)))
+    tiles=[]
+    for i,item in enumerate(points):
+        x=72+(i%2)*738;y=315+(i//2)*235
+        tiles.append(f'<rect x="{x}" y="{y}" width="710" height="208" rx="28" fill="#FFFFFF" stroke="#DCE5F5" stroke-width="3"/>')
+        tiles.append(f'<circle cx="{x+58}" cy="{y+59}" r="30" fill="{main if i%2==0 else accent}"/>')
+        tiles.append(text_lines(str(i+1),x+47,y+72,2,33,'#FFFFFF',1))
+        tiles.append(text_lines(item['title'],x+106,y+66,29,29,dark,2,36))
+        tiles.append(text_lines(item['detail'],x+32,y+125,48,21,dark,3,30,'400'))
+    svg=(f'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">'
+         f'<rect width="1600" height="900" fill="#F1F6FF"/>'
+         f'<rect width="1600" height="265" fill="{dark}"/>'
+         f'<circle cx="1480" cy="65" r="230" fill="{main}" opacity="0.4"/>'
+         +text_lines(topic,72,108,43,48,'#FFFFFF',2,62)
+         +text_lines(f'{subject}  •  {grade}-сынып',74,238,72,24,'#E0E9FF',1)
+         +''.join(tiles)
+         +text_lines('SMART TEACHER  •  ТАҚЫРЫПТЫҚ ИНФОГРАФИКА',74,840,75,21,dark,1)
+         +'</svg>')
+    png=uniq('.png')
+    cairosvg.svg2png(bytestring=svg.encode('utf-8'),write_to=png,output_width=1600)
+    return png,png,'<div class="status-success">✅ Инфографика дайын! Төменнен көріп, PNG жүктей аласыз.</div>'
+
 def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals):
     missing=[name for name,value in [('Мектеп',school),('Мұғалім',teacher),('Пән',subject),('Сынып',grade),('Тақырып',topic),('Оқу мақсаты',objective)] if not S(value).strip()]
     if missing: raise gr.Error('Міндетті өрістер: '+', '.join(missing))
@@ -862,6 +923,16 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
                 canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
+            gr.HTML('<div class="help-panel" style="background:#edf4ff!important;border:1px solid #c7d2fe!important;margin:14px 0"><b style="font-size:19px;color:#24429c">🎨 AI Infographic Studio — бірден инфографика жасау</b><p>Сол жақтағы тақырып пен оқу мақсаты бойынша инфографика осы жерде жасалып, сақталады. Толық ҚМЖ генерациясын күтудің қажеті жоқ.</p></div>')
+            infographic_btn=gr.Button('✨ Инфографиканы бірден жасау',variant='primary')
+            infographic_status=gr.HTML('<div class="status-ready">Инфографика жасау үшін тақырыпты енгізіп, батырманы басыңыз.</div>')
+            infographic_preview=gr.Image(label='Дайын инфографика · 16:9',interactive=False,show_download_button=False)
+            infographic_download=gr.DownloadButton('⬇ Инфографиканы PNG ретінде жүктеу',variant='primary')
+            gr.HTML("""<div class="help-panel" style="background:#eef2ff!important;border:1px solid #c7d2fe!important;margin:12px 0">
+              <div style="font-size:19px;font-weight:800;color:#243d92;margin-bottom:8px">🎨 Canva Education — инфографиканы өңдеу</div>
+              <p>Дайын PNG файлын жүктеп, Canva-да Uploads арқылы ашыңыз. PNG — тұтас сурет; жеке мәтіндерді өңдеу үшін Canva-да қайта құрастыру қажет.</p>
+              <a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(100deg,#246cf9,#913be9);color:#fff!important;padding:13px 22px;border-radius:12px;font-weight:800;text-decoration:none">↗ Canva Education ашу</a>
+            </div>""")
             gr.HTML("""<div class="help-panel" style="background:#eef2ff!important;border:1px solid #c7d2fe!important;margin:12px 0">
               <div style="font-size:19px;font-weight:800;color:#243d92;margin-bottom:8px">✦ ChatGPT Edu — презентация жасау</div>
               <p style="color:#304569">ChatGPT-ті жаңа қойындыда ашып, сабаққа арналған презентация дайындаңыз. Edu аккаунтыңызға кіріп тұрғаныңызды тексеріңіз.</p>
@@ -869,6 +940,7 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             </div>""")
             gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
+    infographic_btn.click(fn=make_standalone_infographic,inputs=[subject,grade,topic,objective,design_style],outputs=[infographic_preview,infographic_download,infographic_status],show_progress='full')
     btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
 # Mount Gradio under the same FastAPI app so Canva /canva/callback works on Render.
