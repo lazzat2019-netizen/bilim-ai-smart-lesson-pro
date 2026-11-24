@@ -184,7 +184,7 @@ def generate(subject,grade,topic,objective,duration,values):
 Осы әдістерді intro/middle/end teacher, student, assessment, resources өрістеріне нақты орналастыр.
 Жаңа сабақта оқушының сыни ойлауын және функционалдық сауаттылығын дамыт.
 Нейрондық желі IP желісі емес. Әр пәнге өзіне сәйкес диаграмма жаса. Қазақ тілінде жауап бер.''' 
-    # Generate three smaller JSON responses to avoid truncated long JSON.
+    # Generate small, independently validated JSON parts to prevent truncated responses.
     def transient_error(exc):
         code = getattr(exc, 'code', None)
         msg = str(exc).upper()
@@ -192,7 +192,13 @@ def generate(subject,grade,topic,objective,duration,values):
             x in msg for x in ('503 UNAVAILABLE', '429 RESOURCE_EXHAUSTED',
             '500 INTERNAL', '502 BAD_GATEWAY', '504 DEADLINE_EXCEEDED', 'HIGH DEMAND'))
 
-    def request_part(part_name, keys, instruction):
+    context = (f'Қазақстандық педагог-әдіскер ретінде тек қазақ тілінде жаз. '
+               f'Пән: {subject}; сынып: {grade}; тақырып: {topic}; '
+               f'оқу мақсаты: {objective}; уақыт: {duration} минут; құндылық: {values}. '
+               'Тек осы тақырыпқа сай нақты, оқушыға түсінікті материал жаса. '
+               'Жауап тек толық JSON болсын. Әр өрісті қысқа әрі мазмұнды жаз.')
+
+    def request_part(part_name, keys, instruction, max_tokens=3200):
         part_schema = {'type': 'OBJECT',
                        'properties': {k: schema['properties'][k] for k in keys},
                        'required': list(keys)}
@@ -203,14 +209,16 @@ def generate(subject,grade,topic,objective,duration,values):
         for model_name in models:
             for attempt in range(3):
                 try:
+                    # Shorter retry output helps if the model truncated the previous JSON.
+                    brevity = (' Әр мәтін 1-2 қысқа сөйлем болсын; JSON міндетті түрде аяқталсын.'
+                               if attempt else '')
                     response = client.models.generate_content(
                         model=model_name,
-                        contents=prompt + '\n\nҚАЗІР ТЕК МЫНА БӨЛІКТІ ЖАЗ: ' + instruction +
-                                 '\nТек сұралған JSON өрістерін қайтар. Қысқа, нақты және толық жаз.',
+                        contents=context + '\n' + instruction + brevity,
                         config=types.GenerateContentConfig(
                             response_mime_type='application/json',
                             response_schema=part_schema,
-                            temperature=0.2, max_output_tokens=6500))
+                            temperature=0.1, max_output_tokens=max_tokens))
                     raw = response.text or ''
                     if not raw.strip():
                         raise ValueError('Gemini бос жауап қайтарды')
@@ -220,16 +228,16 @@ def generate(subject,grade,topic,objective,duration,values):
                         raise ValueError('JSON толық емес немесе қате: ' + str(err)) from err
                     if not isinstance(data, dict) or any(k not in data for k in keys):
                         raise ValueError('JSON өрістері толық емес')
-                    if part_name == 'cards' and len(data.get('cards', [])) != 6:
-                        raise ValueError('Дәл 6 карточка алынбады')
-                    if part_name == 'quiz' and len(data.get('quiz', [])) != 10:
-                        raise ValueError('Дәл 10 тест сұрағы алынбады')
+                    if part_name.startswith('cards_') and len(data.get('cards', [])) != 3:
+                        raise ValueError('Карточка саны 3 болуы тиіс')
+                    if part_name.startswith('quiz_') and len(data.get('quiz', [])) != 5:
+                        raise ValueError('Тест саны 5 болуы тиіс')
                     return data
                 except Exception as exc:
                     last = exc
                     message = str(exc).upper()
                     if 'NOT_FOUND' in message or 'NOT SUPPORTED' in message:
-                        break  # Do not retry unavailable model; try next configured model.
+                        break
                     malformed = isinstance(exc, (ValueError, json.JSONDecodeError))
                     if not malformed and not transient_error(exc):
                         raise RuntimeError('Gemini сұранысы орындалмады: ' + str(exc)[:200]) from exc
@@ -237,14 +245,41 @@ def generate(subject,grade,topic,objective,duration,values):
                         time.sleep(2 * (attempt + 1))
         raise RuntimeError(f'{part_name} бөлігін дайындау мүмкін болмады: {str(last)[:180]}') from last
 
-    lesson_keys = ['lesson_goal','values','ai_usage','intro','middle','end',
-                   'explanation','concepts','steps','diagram','reflection','homework']
-    result = request_part('lesson', lesson_keys,
-        'ҚМЖ, түсіндірме, ұғымдар, қадамдар, сызба, рефлексия және үй тапсырмасы.')
-    result.update(request_part('cards', ['cards'],
-        'ДӘЛ 6 әртүрлі деңгейдегі тақырыптық карточка. Әр тапсырмаға қысқа, нақты жауап пен көрнекі белгілер бер.'))
-    result.update(request_part('quiz', ['quiz'],
-        'ДӘЛ 10 төрт жауапты тест. Дұрыс жауап индексі 0-3, түсіндірмесі қысқа болсын.'))
+    result = {}
+    result.update(request_part('plan', ['lesson_goal','values','ai_usage','intro','middle','end'],
+        f'ҚМЖ кезеңдерін, нақты әрекет, бағалау және ресурстарды жаз. '
+        f'Қызығушылықты ояту: {selected["brainstorm"]}; сыни ойлау: {selected["critical"]}; '
+        f'бағалау: {selected["assessment"]}. Әр әрекет 2-3 сөйлемнен аспасын.', 4000))
+    result.update(request_part('theory', ['explanation','concepts','steps','diagram','reflection','homework'],
+        f'Түсіндірме 100-140 сөз; 4 ұғым; 4 қадамдық мысал; 3-4 қысқа диаграмма белгісі. '
+        f'Рефлексия әдісі: {selected["reflection"]}. Қысқа үй тапсырмасын бер.', 4000))
+
+    # Six cards and ten questions are assembled from smaller independently generated batches.
+    card_schema = schema['properties']['cards']
+    quiz_schema = schema['properties']['quiz']
+    card_kinds = ['бос орын', 'сәйкестендіру', 'суретті талдау',
+                  'есеп', 'функционалдық сауаттылық', 'шығармашылық']
+    cards = []
+    for start in (0, 3):
+        end = start + 3
+        instructions = '; '.join(f'{i+1}: {card_kinds[i]}' for i in range(start, end))
+        batch = request_part(f'cards_{start+1}_{end}', ['cards'],
+            f'Дәл 3 карточка жаз, нөмірлері {start+1}-{end}. Түрлері: {instructions}. '
+            'Әр карточкада қысқа контекст, нақты тапсырма, жауап, кеңес, 2-3 visual_labels болсын.', 3500)
+        if len(batch.get('cards', [])) != 3:
+            raise RuntimeError(f'{start+1}-{end} карточкалар саны дұрыс емес')
+        cards.extend(batch['cards'])
+    result['cards'] = cards
+    quiz = []
+    for start in (0, 5):
+        end = start + 5
+        batch = request_part(f'quiz_{start+1}_{end}', ['quiz'],
+            f'Дәл 5 әртүрлі тест сұрағын жаз (жалпы тесттегі {start+1}-{end} сұрақтар). '
+            'Әр сұраққа 4 қысқа нұсқа, дұрыс жауап индексі 0-3, бір сөйлем түсіндірме.', 3500)
+        if len(batch.get('quiz', [])) != 5:
+            raise RuntimeError(f'{start+1}-{end} тест сұрақтарының саны дұрыс емес')
+        quiz.extend(batch['quiz'])
+    result['quiz'] = quiz
     result = normalize(result)
     result['methods'] = selected
     for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),
