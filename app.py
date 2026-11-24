@@ -886,6 +886,7 @@ CSS += r"""
 #result-panel .download-row.web .download-button button {background:#1767f5 !important;}
 #result-panel .download-row.cards .download-button button {background:#8538df !important;}
 """
+CSS += '\n/* Side-by-side ChatGPT and Canva, followed by inline infographic generator. */\n.creative-studio{background:#eef2ff;border:1px solid #c7d2fe;border-radius:16px;padding:20px;margin:14px 0;color:#1d355b}\n.creative-heading{font-size:21px;font-weight:850;color:#213f94;margin-bottom:14px}\n.creative-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}\n.creative-card{display:flex;flex-direction:column;align-items:flex-start;background:#fff;border:1px solid #d8e3fa;border-radius:14px;padding:18px;min-height:170px}\n.creative-title{font-size:19px;font-weight:800;color:#2547a5}\n.creative-card p{font-size:14px;line-height:1.5;color:#425575;flex:1;margin:10px 0 14px}\n.creative-link{display:inline-block;background:linear-gradient(105deg,#2868f2,#8244e5);border-radius:11px;padding:11px 17px;color:#fff!important;font-weight:800;text-decoration:none}\n@media(max-width:640px){.creative-grid{grid-template-columns:1fr}}\n'
 with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық көмекшісі') as demo:
     gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 Smart Teacher</h1><p style="font-size:20px;font-weight:700;margin-top:5px">Мұғалімнің цифрлық көмекшісі</p><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
@@ -923,21 +924,24 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
                 canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
+            gr.HTML("""<div class="creative-studio">
+              <div class="creative-heading">✦ AI шығармашылық студиясы</div>
+              <div class="creative-grid">
+                <section class="creative-card"><div class="creative-title">🎓 ChatGPT Edu</div>
+                  <p>Сабаққа арналған презентация және оқу материалдарын дайындау.</p>
+                  <a class="creative-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT Edu ашу</a>
+                </section>
+                <section class="creative-card"><div class="creative-title">🎨 Canva Education</div>
+                  <p>Дайын PNG инфографиканы Canva-ға жүктеп, безендіру. Canva жаңа қойындыда ашылады.</p>
+                  <a class="creative-link" href="https://www.canva.com/" target="_blank" rel="noopener noreferrer">↗ Canva ашу</a>
+                </section>
+              </div>
+            </div>""")
             gr.HTML('<div class="help-panel" style="background:#edf4ff!important;border:1px solid #c7d2fe!important;margin:14px 0"><b style="font-size:19px;color:#24429c">🎨 AI Infographic Studio — бірден инфографика жасау</b><p>Сол жақтағы тақырып пен оқу мақсаты бойынша инфографика осы жерде жасалып, сақталады. Толық ҚМЖ генерациясын күтудің қажеті жоқ.</p></div>')
             infographic_btn=gr.Button('✨ Инфографиканы бірден жасау',variant='primary')
             infographic_status=gr.HTML('<div class="status-ready">Инфографика жасау үшін тақырыпты енгізіп, батырманы басыңыз.</div>')
             infographic_preview=gr.Image(label='Дайын инфографика · 16:9',interactive=False,show_download_button=False)
             infographic_download=gr.DownloadButton('⬇ Инфографиканы PNG ретінде жүктеу',variant='primary')
-            gr.HTML("""<div class="help-panel" style="background:#eef2ff!important;border:1px solid #c7d2fe!important;margin:12px 0">
-              <div style="font-size:19px;font-weight:800;color:#243d92;margin-bottom:8px">🎨 Canva Education — инфографиканы өңдеу</div>
-              <p>Дайын PNG файлын жүктеп, Canva-да Uploads арқылы ашыңыз. PNG — тұтас сурет; жеке мәтіндерді өңдеу үшін Canva-да қайта құрастыру қажет.</p>
-              <a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(100deg,#246cf9,#913be9);color:#fff!important;padding:13px 22px;border-radius:12px;font-weight:800;text-decoration:none">↗ Canva Education ашу</a>
-            </div>""")
-            gr.HTML("""<div class="help-panel" style="background:#eef2ff!important;border:1px solid #c7d2fe!important;margin:12px 0">
-              <div style="font-size:19px;font-weight:800;color:#243d92;margin-bottom:8px">✦ ChatGPT Edu — презентация жасау</div>
-              <p style="color:#304569">ChatGPT-ті жаңа қойындыда ашып, сабаққа арналған презентация дайындаңыз. Edu аккаунтыңызға кіріп тұрғаныңызды тексеріңіз.</p>
-              <a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(100deg,#245ee8,#7544d9);color:#fff!important;padding:13px 22px;border-radius:12px;font-weight:800;text-decoration:none">↗ ChatGPT Edu ашу</a>
-            </div>""")
             gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
     infographic_btn.click(fn=make_standalone_infographic,inputs=[subject,grade,topic,objective,design_style],outputs=[infographic_preview,infographic_download,infographic_status],show_progress='full')
