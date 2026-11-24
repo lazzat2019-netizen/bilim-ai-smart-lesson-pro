@@ -940,7 +940,7 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             gr.HTML('<div class="help-panel" style="background:#edf4ff!important;border:1px solid #c7d2fe!important;margin:14px 0"><b style="font-size:19px;color:#24429c">🎨 AI Infographic Studio — бірден инфографика жасау</b><p>Сол жақтағы тақырып пен оқу мақсаты бойынша инфографика осы жерде жасалып, сақталады. Толық ҚМЖ генерациясын күтудің қажеті жоқ.</p></div>')
             infographic_btn=gr.Button('✨ Инфографиканы бірден жасау',variant='primary')
             infographic_status=gr.HTML('<div class="status-ready">Инфографика жасау үшін тақырыпты енгізіп, батырманы басыңыз.</div>')
-            infographic_preview=gr.Image(label='Дайын инфографика · 16:9',interactive=False,show_download_button=False)
+            infographic_preview=gr.Image(label='Дайын инфографика · 16:9',interactive=False)
             infographic_download=gr.DownloadButton('⬇ Инфографиканы PNG ретінде жүктеу',variant='primary')
             gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
