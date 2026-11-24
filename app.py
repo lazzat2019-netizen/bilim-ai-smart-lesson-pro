@@ -627,7 +627,7 @@ def make_pptx(meta,d,design_style='auto',include_visuals=True):
     summary=['. '.join(pieces[i::3][:2])+'.' for i in range(3)]
     for i,part in enumerate(summary):panel(sl,part,.83,1.52+i*1.63,11.65,1.4,[t['pale'],t['soft'],'FFFFFF'][i],17,f'НЕГІЗГІ ОЙ {i+1}')
     # 05 topic diagram
-    sl=base('Тақырыптық инфографика',5)
+    sl=base('Тақырыптық сызба',5)
     if include_visuals:infographic(sl,d.get('diagram',{}).get('labels',[]))
     callout(sl,d.get('diagram',{}).get('caption',''),5.32)
     # 06 concepts: four quadrants
@@ -673,123 +673,6 @@ def make_pptx(meta,d,design_style='auto',include_visuals=True):
     out=uniq('.pptx');prs.save(out);return out
 
 
-# Canva Education: API-free export. No Canva credentials are collected.
-def canva_design_pack(meta, data, pptx_path, design_style='auto'):
-    import zipfile
-    from xml.sax.saxutils import escape as xml_escape
-    theme=choose_design(meta,design_style)
-    main='#'+theme['main']; dark='#'+theme['dark']; accent='#'+theme['accent']
-    def lines(text,limit=32,maxlines=5):
-        import textwrap
-        value=' '.join(str(text or '').split())
-        arr=textwrap.wrap(value,width=limit,break_long_words=False,break_on_hyphens=False)
-        if len(arr)>maxlines:arr=arr[:maxlines];arr[-1]=arr[-1][:max(1,limit-2)]+'…'
-        return arr
-    def svg_text(text,x,y,width=34,size=43,fill='#14284e',maxlines=5,step=None):
-        step=step or size*1.3
-        return ''.join(f'<text x="{x}" y="{y+i*step:.0f}" font-family="DejaVu Sans,Arial,sans-serif" font-size="{size}" font-weight="700" fill="{fill}">{xml_escape(t)}</text>' for i,t in enumerate(lines(text,width,maxlines)))
-    def save_svg_png(svg,name):
-        target=Path(ROOT)/('canva_'+uuid.uuid4().hex[:8]+'_'+name)
-        cairosvg.svg2png(bytestring=svg.encode('utf-8'),write_to=str(target))
-        return target
-    outputs=[]
-    labels=data.get('diagram',{}).get('labels',[])[:4]
-    labels=[str(x) for x in labels if str(x).strip()] or ['Түсіну','Талдау','Қолдану']
-    # Landscape infographic, 1600 x 900.
-    cells=[]
-    cell_w=(1460-20*(len(labels)-1))/len(labels)
-    for i,label in enumerate(labels):
-        x=70+i*(cell_w+20)
-        cells.append(f'<rect x="{x:.0f}" y="345" width="{cell_w:.0f}" height="310" rx="26" fill="white" stroke="#DCE7F4" stroke-width="3"/>')
-        cells.append(f'<circle cx="{x+60:.0f}" cy="410" r="33" fill="{main if i%2==0 else accent}"/>')
-        cells.append(svg_text(str(i+1),x+47,426,2,36,'#FFFFFF',1))
-        cells.append(svg_text(label,x+30,502,max(10,int(cell_w/22)),32,dark,4,47))
-    infographic=f'''<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#F2F7FF"/><rect width="1600" height="220" fill="{dark}"/><circle cx="1450" cy="70" r="170" fill="{main}" opacity=".45"/>{svg_text(meta['topic'],70,105,37,49,'#FFFFFF',2,64)}<text x="70" y="285" font-size="29" font-family="DejaVu Sans" fill="{main}">ТАҚЫРЫПТЫҚ ИНФОГРАФИКА</text>{''.join(cells)}{svg_text(data.get('diagram',{}).get('caption',''),75,755,70,25,dark,3,35)}</svg>'''
-    outputs.append(('infographic_16x9.png',save_svg_png(infographic,'infographic.png')))
-    poster=f'''<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1528"><rect width="1080" height="1528" fill="#F5F8FF"/><rect width="1080" height="480" fill="{dark}"/><circle cx="960" cy="80" r="210" fill="{accent}" opacity=".4"/><text x="74" y="100" font-family="DejaVu Sans" font-size="33" fill="#FFFFFF">SMART TEACHER • SMART LESSON</text>{svg_text(meta['topic'],74,205,24,55,'#FFFFFF',4,72)}<rect x="65" y="530" width="950" height="850" rx="36" fill="#FFFFFF" stroke="#D9E5F7" stroke-width="3"/><text x="112" y="605" font-size="35" font-family="DejaVu Sans" font-weight="700" fill="{main}">НЕГІЗГІ ҰҒЫМДАР</text>{''.join(f'<rect x="112" y="{665+i*147}" width="850" height="118" rx="20" fill="{theme["pale"]}"/>'+svg_text(label,146,731+i*147,29,33,dark,2,42) for i,label in enumerate(labels[:4]))}<text x="72" y="1470" font-size="25" font-family="DejaVu Sans" fill="{dark}">{xml_escape(str(meta['subject']))} • {xml_escape(str(meta['grade']))}-сынып</text></svg>'''
-    outputs.append(('poster_A4_portrait.png',save_svg_png(poster,'poster.png')))
-    for i,card in enumerate(data.get('cards',[])[:6],1):
-        card_labels=card.get('visual_labels',[])[:3]
-        visual=''.join(f'<rect x="76" y="{570+j*124}" width="568" height="96" rx="18" fill="{theme["pale"]}"/>'+svg_text(label,105,628+j*124,27,26,dark,2,33) for j,label in enumerate(card_labels))
-        card_svg=f'''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280"><rect width="720" height="1280" fill="{dark}"/><rect x="20" y="20" width="680" height="1240" rx="32" fill="#FFFFFF"/><rect x="20" y="20" width="680" height="210" rx="32" fill="{main}"/><text x="68" y="75" font-size="23" fill="#FFFFFF" font-family="DejaVu Sans">SMART TEACHER · ТАПСЫРМА {i}/6</text>{svg_text(card.get('title',''),68,135,25,34,'#FFFFFF',2,43)}<text x="70" y="280" font-size="25" fill="{main}" font-family="DejaVu Sans">{xml_escape(str(card.get('level','')))}</text>{svg_text(card.get('context',''),70,340,34,25,dark,5,37)}{visual}<rect x="68" y="1005" width="584" height="175" rx="20" fill="#EDF3FF"/><text x="92" y="1047" font-size="25" font-family="DejaVu Sans" fill="{main}">ТАПСЫРМА</text>{svg_text(card.get('question',''),92,1093,37,23,dark,3,31)}</svg>'''
-        outputs.append((f'card_{i:02d}_9x16.png',save_svg_png(card_svg,f'card_{i}.png')))
-    zip_path=uniq('.zip')
-    guide=('CANVA EDUCATION IMPORT PACK\n\n'
-           '1. Canva -> Create a design -> Import file / Uploads.\n'
-           '2. presentation.pptx: import as a presentation and edit text and shapes.\n'
-           '3. infographic_16x9.png: upload as a background/visual asset.\n'
-           '4. poster_A4_portrait.png: upload into an A4 design.\n'
-           '5. card_01..06_9x16.png: upload as six image assets.\n'
-           'PNG images are flat images, not individually editable Canva elements.\n'
-           'This is an API-free export; it does not create Canva designs automatically.\n'
-           'OAuth and Autofill API are NOT enabled in this version.\n')
-    with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(pptx_path,'presentation.pptx')
-        for name,path in outputs:z.write(path,name)
-        z.writestr('CANVA_IMPORT_README.txt',guide)
-    return zip_path
-
-# Standalone infographic: generated directly on Smart Teacher, independent of full lesson.
-def make_standalone_infographic(subject, grade, topic, objective, design_style):
-    if not str(topic or '').strip():
-        raise gr.Error('Алдымен сабақ тақырыбын енгізіңіз.')
-    import textwrap
-    from xml.sax.saxutils import escape as xesc
-    meta={'subject':subject or 'Пән', 'grade':grade or '7', 'topic':topic}
-    theme=choose_design(meta,design_style)
-    points=[]
-    subtitle=str(objective or '').strip()
-    # A small AI request gives topic-specific short labels; infographic still works if API is unavailable.
-    if client:
-        try:
-            prompt=('Қазақ тілінде білім беру инфографикасына арналған 4 қысқа, нақты факт дайында. '
-                    'Әр факт осы сабақ тақырыбына тікелей қатысты болсын. '
-                    'Тек JSON: {"items":[{"title":"...","detail":"..."}, ...]} '
-                    'Дәл 4 элемент, әр title 2-5 сөз, detail 8-17 сөз. '
-                    f'Пән: {subject}. Сынып: {grade}. Тақырып: {topic}. Оқу мақсаты: {objective}.')
-            result=client.models.generate_content(model=MODEL,contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type='application/json',temperature=0.2,max_output_tokens=1100))
-            points=json.loads(result.text or '{}').get('items',[])
-            points=[x for x in points if isinstance(x,dict) and x.get('title') and x.get('detail')][:4]
-        except Exception:
-            points=[]
-    if len(points)!=4:
-        # Transparent fallback, no fabricated topic facts: use topic and learning objective as labels.
-        points=[{'title':'Тақырып','detail':str(topic)},
-                {'title':'Оқу мақсаты','detail':subtitle or 'Тақырыптың негізгі ұғымдарын түсіну'},
-                {'title':'Түсіну','detail':'Негізгі ұғымдарды анықтап, мысалдармен түсіндіріңіз.'},
-                {'title':'Қолдану','detail':'Алған білімді практикалық тапсырмада қолданыңыз.'}]
-    dark='#'+theme['dark']; main='#'+theme['main']; accent='#'+theme['accent']
-    def lines(value,limit,maxlines):
-        text=' '.join(str(value or '').split())
-        arr=textwrap.wrap(text,width=limit,break_long_words=True,break_on_hyphens=False)
-        if len(arr)>maxlines:
-            arr=arr[:maxlines];arr[-1]=arr[-1].rstrip(' .')+'…'
-        return arr
-    def text_lines(value,x,y,limit,size,color,maxlines=3,step=None,weight='600'):
-        step=step or int(size*1.36)
-        return ''.join(f'<text x="{x}" y="{y+i*step}" font-family="DejaVu Sans,Arial,sans-serif" font-size="{size}" font-weight="{weight}" fill="{color}">{xesc(t)}</text>' for i,t in enumerate(lines(value,limit,maxlines)))
-    tiles=[]
-    for i,item in enumerate(points):
-        x=72+(i%2)*738;y=315+(i//2)*235
-        tiles.append(f'<rect x="{x}" y="{y}" width="710" height="208" rx="28" fill="#FFFFFF" stroke="#DCE5F5" stroke-width="3"/>')
-        tiles.append(f'<circle cx="{x+58}" cy="{y+59}" r="30" fill="{main if i%2==0 else accent}"/>')
-        tiles.append(text_lines(str(i+1),x+47,y+72,2,33,'#FFFFFF',1))
-        tiles.append(text_lines(item['title'],x+106,y+66,29,29,dark,2,36))
-        tiles.append(text_lines(item['detail'],x+32,y+125,48,21,dark,3,30,'400'))
-    svg=(f'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">'
-         f'<rect width="1600" height="900" fill="#F1F6FF"/>'
-         f'<rect width="1600" height="265" fill="{dark}"/>'
-         f'<circle cx="1480" cy="65" r="230" fill="{main}" opacity="0.4"/>'
-         +text_lines(topic,72,108,43,48,'#FFFFFF',2,62)
-         +text_lines(f'{subject}  •  {grade}-сынып',74,238,72,24,'#E0E9FF',1)
-         +''.join(tiles)
-         +text_lines('SMART TEACHER  •  ТАҚЫРЫПТЫҚ ИНФОГРАФИКА',74,840,75,21,dark,1)
-         +'</svg>')
-    png=uniq('.png')
-    cairosvg.svg2png(bytestring=svg.encode('utf-8'),write_to=png,output_width=1600)
-    return png,png,'<div class="status-success">✅ Инфографика дайын! Төменнен көріп, PNG жүктей аласыз.</div>'
-
 def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals):
     missing=[name for name,value in [('Мектеп',school),('Мұғалім',teacher),('Пән',subject),('Сынып',grade),('Тақырып',topic),('Оқу мақсаты',objective)] if not S(value).strip()]
     if missing: raise gr.Error('Міндетті өрістер: '+', '.join(missing))
@@ -797,9 +680,8 @@ def run(school,teacher,day,unit,subject,grade,topic,objective,duration,values,de
     try:
         d=generate(subject,grade,topic,objective,int(duration),values)
         word=make_docx(meta,d);lesson,cards=make_html(meta,d);pptx=make_pptx(meta,d,design_style,include_visuals)
-        canva_pack=canva_design_pack(meta,d,pptx,design_style)
         preview=f'''<div class="pro-preview"><h2>🎓 {E(topic)}</h2><p>🎯 <b>Сабақ мақсаты:</b> {E(d['lesson_goal'])}</p><p>💗 <b>Құндылықтар:</b> {E(d['values'])}</p><p>📊 <b>Тапсырмалар:</b> 6 суретті карточка (жеке, жұптық, функционалдық)</p><p>☷ <b>Тест:</b> 10 сұрақ, автоматты тексеру</p></div>'''
-        return preview,word,pptx,lesson,cards,canva_pack,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
+        return preview,word,pptx,lesson,cards,'<div class="status-success">✅ &nbsp; Файлдар сәтті дайындалды!</div>'
     except Exception as e:
         raise gr.Error('Генерация қатесі: '+str(e)[:450])
 
@@ -921,7 +803,7 @@ CSS += r"""
 #result-panel .download-row.web .download-button button {background:#1767f5 !important;}
 #result-panel .download-row.cards .download-button button {background:#8538df !important;}
 """
-CSS += '\n/* Side-by-side ChatGPT and Canva, followed by inline infographic generator. */\n.creative-studio{background:#eef2ff;border:1px solid #c7d2fe;border-radius:16px;padding:20px;margin:14px 0;color:#1d355b}\n.creative-heading{font-size:21px;font-weight:850;color:#213f94;margin-bottom:14px}\n.creative-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}\n.creative-card{display:flex;flex-direction:column;align-items:flex-start;background:#fff;border:1px solid #d8e3fa;border-radius:14px;padding:18px;min-height:170px}\n.creative-title{font-size:19px;font-weight:800;color:#2547a5}\n.creative-card p{font-size:14px;line-height:1.5;color:#425575;flex:1;margin:10px 0 14px}\n.creative-link{display:inline-block;background:linear-gradient(105deg,#2868f2,#8244e5);border-radius:11px;padding:11px 17px;color:#fff!important;font-weight:800;text-decoration:none}\n@media(max-width:640px){.creative-grid{grid-template-columns:1fr}}\n'
+CSS += '\n/* Side-by-side ChatGPT and Canva. */\n.creative-studio{background:#eef2ff;border:1px solid #c7d2fe;border-radius:16px;padding:20px;margin:14px 0;color:#1d355b}\n.creative-heading{font-size:21px;font-weight:850;color:#213f94;margin-bottom:14px}\n.creative-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}\n.creative-card{display:flex;flex-direction:column;align-items:flex-start;background:#fff;border:1px solid #d8e3fa;border-radius:14px;padding:18px;min-height:170px}\n.creative-title{font-size:19px;font-weight:800;color:#2547a5}\n.creative-card p{font-size:14px;line-height:1.5;color:#425575;flex:1;margin:10px 0 14px}\n.creative-link{display:inline-block;background:linear-gradient(105deg,#2868f2,#8244e5);border-radius:11px;padding:11px 17px;color:#fff!important;font-weight:800;text-decoration:none}\n@media(max-width:640px){.creative-grid{grid-template-columns:1fr}}\n'
 with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық көмекшісі') as demo:
     gr.HTML("""<div id="bilim-hero"><div class="hero-grid"><div><h1>🎓 Smart Teacher</h1><p style="font-size:20px;font-weight:700;margin-top:5px">Мұғалімнің цифрлық көмекшісі</p><p>Gemini AI · Суретті Word ҚМЖ · AI Smart Design · HTML сабақ · 6 Premium карточка</p></div><div class="hero-icons"><div class="hero-icon"><b>📄</b>Word ҚМЖ</div><div class="hero-icon"><b>📊</b>PowerPoint</div><div class="hero-icon"><b>🌐</b>HTML сабақ</div><div class="hero-icon"><b>🎨</b>6 карточка</div></div></div></div>""")
     with gr.Row(equal_height=False):
@@ -939,7 +821,7 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             gr.Markdown('### 🎨 AI Smart Design — презентация')
             design_style=gr.Dropdown(choices=[('ЖИ тақырыпқа сай автоматты таңдасын','auto'),('AI / Футуристік','ai'),('Программалау / Ойын','coding'),('Желі / Технология','network'),('Жаратылыстану / Табиғат','science'),('Математика / Дәлдік','math'),('Шығармашылық','creative'),('Заманауи','general')],value='auto',label='Презентация дизайны')
             gr.Markdown('**Слайд саны: 16 · Формат: 16:9**')
-            include_visuals=gr.Checkbox(label='Тақырыптық инфографика мен векторлық иллюстрациялар',value=True)
+            include_visuals=gr.Checkbox(label='Тақырыптық сызбалар мен векторлық иллюстрациялар',value=True)
             btn=gr.Button('✨ ҚМЖ + презентация + HTML + 6 карточка құру',variant='primary',size='lg')
         with gr.Column(scale=9,min_width=390,elem_id='result-panel'):
             status=gr.HTML('<div class="status-ready">✦ &nbsp; Сабақ мәліметтерін енгізіп, генерация батырмасын басыңыз.</div>')
@@ -948,7 +830,7 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
                 gr.HTML('<div class="download-copy">📘 <strong>Word ҚМЖ (.docx)</strong><br><small>Суреттермен безендірілген қысқа мерзімді жоспар</small></div>')
                 word=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','ppt']):
-                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>16 слайд, AI Smart Design және инфографика</small></div>')
+                gr.HTML('<div class="download-copy">📙 <strong>PowerPoint презентациясы (.pptx)</strong><br><small>16 слайд, AI Smart Design және тақырыптық сызбалар</small></div>')
                 ppt=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             with gr.Row(elem_classes=['download-row','web']):
                 gr.HTML('<div class="download-copy">🌐 <strong>Интерактивті HTML сабағы</strong><br><small>Түсіндірме, тапсырмалар және 10 сұрақтық тест</small></div>')
@@ -956,9 +838,6 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
             with gr.Row(elem_classes=['download-row','cards']):
                 gr.HTML('<div class="download-copy">🎨 <strong>6 Premium карточка (HTML)</strong><br><small>9:16 форматындағы суретті тапсырмалар</small></div>')
                 cards=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
-            with gr.Row(elem_classes=['download-row','web']):
-                gr.HTML('<div class="download-copy">🎨 <strong>Canva Education импорт пакеті (.zip)</strong><br><small>PPTX + инфографика PNG + постер PNG + 6 суретті карточка PNG</small></div>')
-                canva_download=gr.DownloadButton('⬇ Жүктеу',elem_classes=['download-button'],variant='primary')
             gr.HTML("""<div class="creative-studio">
               <div class="creative-heading">✦ AI шығармашылық студиясы</div>
               <div class="creative-grid">
@@ -967,20 +846,13 @@ with gr.Blocks(title='Smart Teacher – мұғалімнің цифрлық кө
                   <a class="creative-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT Edu ашу</a>
                 </section>
                 <section class="creative-card"><div class="creative-title">🎨 Canva Education</div>
-                  <p>Дайын PNG инфографиканы Canva-ға жүктеп, безендіру. Canva жаңа қойындыда ашылады.</p>
+                  <p>Canva Education редакторын ашып, өз дизайныңызды дайындау.</p>
                   <a class="creative-link" href="https://www.canva.com/" target="_blank" rel="noopener noreferrer">↗ Canva ашу</a>
                 </section>
               </div>
             </div>""")
-            gr.HTML('<div class="help-panel" style="background:#edf4ff!important;border:1px solid #c7d2fe!important;margin:14px 0"><b style="font-size:19px;color:#24429c">🎨 AI Infographic Studio — бірден инфографика жасау</b><p>Сол жақтағы тақырып пен оқу мақсаты бойынша инфографика осы жерде жасалып, сақталады. Толық ҚМЖ генерациясын күтудің қажеті жоқ.</p></div>')
-            infographic_btn=gr.Button('✨ Инфографиканы бірден жасау',variant='primary')
-            infographic_status=gr.HTML('<div class="status-ready">Инфографика жасау үшін тақырыпты енгізіп, батырманы басыңыз.</div>')
-            infographic_preview=gr.Image(label='Дайын инфографика · 16:9',interactive=False)
-            infographic_download=gr.DownloadButton('⬇ Инфографиканы PNG ретінде жүктеу',variant='primary')
-            gr.HTML('<div class="help-panel"><b>🎨 Canva Education OAuth:</b> <a href="/canva/connect" target="_blank">🔗 Canva-ға қосылу</a> · <a href="/canva/status" target="_blank">Байланысты тексеру</a> · <a href="/canva/disconnect">Ажырату</a><br>Canva ZIP импорты сақталған. Автоматты дизайн/Autofill келесі кезеңде іске қосылады.</div>')
             gr.HTML('<div class="help-panel"><b>💡 Қолдану нұсқаулығы:</b><br>1. Word ҚМЖ — суретті сабақ жоспары және дескрипторлар.<br>2. PowerPoint — сабақ презентациясы.<br>3. HTML сабақ — түсіндірме, тапсырмалар және автоматты тест.<br>4. Premium карточкалар — 9:16 форматындағы 6 тапсырма.</div>')
-    infographic_btn.click(fn=make_standalone_infographic,inputs=[subject,grade,topic,objective,design_style],outputs=[infographic_preview,infographic_download,infographic_status],show_progress='full')
-    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,canva_download,status],show_progress='full')
+    btn.click(fn=run,inputs=[school,teacher,day,unit,subject,grade,topic,objective,duration,values,design_style,include_visuals],outputs=[preview,word,ppt,lesson,cards,status],show_progress='full')
 demo.queue(default_concurrency_limit=1)
 # Mount Gradio under the same FastAPI app so Canva /canva/callback works on Render.
 app = gr.mount_gradio_app(canva_app, demo, path='/', theme=LIGHT_THEME, css=CSS)
