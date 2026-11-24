@@ -15,7 +15,7 @@ import cairosvg
 # Render: Environment > GEMINI_API_KEY (never hardcode a key)
 API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite')
-FALLBACK_MODEL = os.environ.get('GEMINI_FALLBACK_MODEL', '').strip()
+FALLBACK_MODEL = os.environ.get('GEMINI_FALLBACK_MODEL', 'gemini-3.1-flash-lite').strip()
 client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=120000)) if API_KEY else None
 ROOT = Path(tempfile.gettempdir()) / 'bilim_ai_pro'
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -228,21 +228,26 @@ def generate(subject,grade,topic,objective,duration,values):
                         raise ValueError('JSON толық емес немесе қате: ' + str(err)) from err
                     if not isinstance(data, dict) or any(k not in data for k in keys):
                         raise ValueError('JSON өрістері толық емес')
-                    if part_name.startswith('cards_') and len(data.get('cards', [])) != 3:
-                        raise ValueError('Карточка саны 3 болуы тиіс')
-                    if part_name.startswith('quiz_') and len(data.get('quiz', [])) != 5:
-                        raise ValueError('Тест саны 5 болуы тиіс')
+                    if part_name == 'cards' and len(data.get('cards', [])) != 6:
+                        raise ValueError('Карточка саны 6 болуы тиіс')
+                    if part_name == 'quiz' and len(data.get('quiz', [])) != 10:
+                        raise ValueError('Тест саны 10 болуы тиіс')
                     return data
                 except Exception as exc:
                     last = exc
                     message = str(exc).upper()
-                    if 'NOT_FOUND' in message or 'NOT SUPPORTED' in message:
+                    if 'NOT_FOUND' in message or 'NOT SUPPORTED' in message or '404' in message:
+                        break
+                    # Quota exhaustion is not fixed by retrying the same model.
+                    if 'RESOURCE_EXHAUSTED' in message or '429' in message:
                         break
                     malformed = isinstance(exc, (ValueError, json.JSONDecodeError))
                     if not malformed and not transient_error(exc):
                         raise RuntimeError('Gemini сұранысы орындалмады: ' + str(exc)[:200]) from exc
                     if attempt < 2:
                         time.sleep(2 * (attempt + 1))
+        if last is not None and ('429' in str(last) or 'RESOURCE_EXHAUSTED' in str(last).upper()):
+            raise RuntimeError('Gemini API лимиті уақытша немесе тәуліктік деңгейде таусылды. Google AI Studio → Rate Limit бөлімін тексеріңіз. Резервтік модель де қолжетімсіз болуы мүмкін.') from last
         raise RuntimeError(f'{part_name} бөлігін дайындау мүмкін болмады: {str(last)[:180]}') from last
 
     result = {}
@@ -254,32 +259,19 @@ def generate(subject,grade,topic,objective,duration,values):
         f'Түсіндірме 100-140 сөз; 4 ұғым; 4 қадамдық мысал; 3-4 қысқа диаграмма белгісі. '
         f'Рефлексия әдісі: {selected["reflection"]}. Қысқа үй тапсырмасын бер.', 4000))
 
-    # Six cards and ten questions are assembled from smaller independently generated batches.
-    card_schema = schema['properties']['cards']
-    quiz_schema = schema['properties']['quiz']
+    # Four Gemini requests per lesson instead of six (plan, theory, cards, quiz).
+    # Keep output concise to reduce truncated JSON responses.
     card_kinds = ['бос орын', 'сәйкестендіру', 'суретті талдау',
                   'есеп', 'функционалдық сауаттылық', 'шығармашылық']
-    cards = []
-    for start in (0, 3):
-        end = start + 3
-        instructions = '; '.join(f'{i+1}: {card_kinds[i]}' for i in range(start, end))
-        batch = request_part(f'cards_{start+1}_{end}', ['cards'],
-            f'Дәл 3 карточка жаз, нөмірлері {start+1}-{end}. Түрлері: {instructions}. '
-            'Әр карточкада қысқа контекст, нақты тапсырма, жауап, кеңес, 2-3 visual_labels болсын.', 3500)
-        if len(batch.get('cards', [])) != 3:
-            raise RuntimeError(f'{start+1}-{end} карточкалар саны дұрыс емес')
-        cards.extend(batch['cards'])
-    result['cards'] = cards
-    quiz = []
-    for start in (0, 5):
-        end = start + 5
-        batch = request_part(f'quiz_{start+1}_{end}', ['quiz'],
-            f'Дәл 5 әртүрлі тест сұрағын жаз (жалпы тесттегі {start+1}-{end} сұрақтар). '
-            'Әр сұраққа 4 қысқа нұсқа, дұрыс жауап индексі 0-3, бір сөйлем түсіндірме.', 3500)
-        if len(batch.get('quiz', [])) != 5:
-            raise RuntimeError(f'{start+1}-{end} тест сұрақтарының саны дұрыс емес')
-        quiz.extend(batch['quiz'])
-    result['quiz'] = quiz
+    instructions = '; '.join(f'{i+1}: {kind}' for i,kind in enumerate(card_kinds))
+    result['cards'] = request_part('cards', ['cards'],
+        f'Дәл 6 әртүрлі карточка жаса. Түрлері ретімен: {instructions}. '
+        'Әрқайсысында қысқа тақырып, деңгей, түрі, 1 сөйлем контекст, нақты тапсырма, '
+        'қысқа кеңес, үлгі жауап және 2 қысқа visual_labels болсын. '
+        'Мазмұн сынып пен оқу мақсатына сай болсын.', 6500)['cards']
+    result['quiz'] = request_part('quiz', ['quiz'],
+        'Дәл 10 бір-бірінен өзгеше тест сұрағын жаса. Әр сұраққа 4 қысқа жауап, '
+        '0-3 аралығында дұрыс жауап индексі және қысқа түсіндірме бер.', 5800)['quiz']
     result = normalize(result)
     result['methods'] = selected
     for phase, label, key in [('intro','Қызығушылықты ояту','brainstorm'),
